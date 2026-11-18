@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "356449042457",
+    "project_id": "smartspendfluter",
+    "storage_bucket": "smartspendfluter.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:356449042457:android:9c68e85c1ac9d7556fea88",
+        "android_client_info": {
+          "package_name": "com.endterm.smart_spend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBljkMNeVQCeWWuUV1WSBCJYOOzkJ0A13Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
