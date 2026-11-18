@@ -461,7 +461,7 @@ class SQLiteDatabaseService {
     ''');
   }
 
-  // ================= HELPER METHODS FOR APP APP ENTITIES ================= //
+  // ================= HELPER METHODS FOR APP ENTITIES ================= //
 
   /// Ensure user exists in database and has a default wallet
   Future<void> _ensureUserAndWalletExists(Database db, String userId, String displayName, String email) async {
@@ -609,5 +609,73 @@ class SQLiteDatabaseService {
       where: 'id = ?',
       whereArgs: [id],
     );
+  }
+
+  // ================= BUDGET OPERATIONS ================= //
+
+  Future<Map<String, dynamic>> getBudgetData() async {
+    final db = await database;
+
+    // Ensure default budget & budget items exist
+    await db.execute('''
+      INSERT OR IGNORE INTO budgets (id, user_id, month_start, total_limit, alert_threshold_pct)
+      VALUES ('budget_2026_11', 'default_user', '2026-11-01', 8000000, 80);
+    ''');
+
+    await db.execute('''
+      INSERT OR IGNORE INTO budget_items (id, budget_id, category_code, limit_amount, alert_threshold_pct)
+      VALUES ('bi_1', 'budget_2026_11', 'an_uong', 3000000, 80);
+    ''');
+    await db.execute('''
+      INSERT OR IGNORE INTO budget_items (id, budget_id, category_code, limit_amount, alert_threshold_pct)
+      VALUES ('bi_2', 'budget_2026_11', 'di_chuyen', 2000000, 80);
+    ''');
+    await db.execute('''
+      INSERT OR IGNORE INTO budget_items (id, budget_id, category_code, limit_amount, alert_threshold_pct)
+      VALUES ('bi_3', 'budget_2026_11', 'mua_sam', 2000000, 80);
+    ''');
+
+    final budgetRows = await db.query('budgets');
+    final itemRows = await db.query('budget_items');
+
+    return {
+      'budget': budgetRows.isNotEmpty ? budgetRows.first : {},
+      'items': itemRows,
+    };
+  }
+
+  // ================= GROUP & DEBT OPERATIONS ================= //
+
+  Future<Map<String, dynamic>> getGroupAndDebtData() async {
+    final db = await database;
+
+    // Ensure default group exists
+    await db.execute('''
+      INSERT OR IGNORE INTO expense_groups (id, owner_id, name)
+      VALUES ('group_dalat', 'default_user', 'Du lịch Đà Lạt');
+    ''');
+
+    final groups = await db.query('expense_groups');
+    final debts = await db.query('debts');
+
+    return {
+      'groups': groups,
+      'debts': debts,
+    };
+  }
+
+  // ================= REPORT OPERATIONS ================= //
+
+  Future<List<Map<String, dynamic>>> getReportCategoryBreakdown() async {
+    final db = await database;
+    final List<Map<String, dynamic>> result = await db.rawQuery('''
+      SELECT kind as category, SUM(amount) as total
+      FROM transactions
+      WHERE type = 'expense'
+      GROUP BY kind
+      ORDER BY total DESC;
+    ''');
+
+    return result;
   }
 }

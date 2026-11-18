@@ -3,6 +3,9 @@ import '../../core/constants/app_colors.dart';
 import '../../models/user_model.dart';
 import '../home/home_screen.dart';
 import '../history/history_screen.dart';
+import '../budget/budget_screen.dart';
+import '../group_debt/group_debt_screen.dart';
+import '../report/report_screen.dart';
 import '../transaction/add_transaction_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
@@ -51,9 +54,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         onOpenAddTransaction: _openAddTransactionModal,
       ),
       HistoryScreen(key: _historyKey),
-      const _PlaceholderScreen(title: 'Ngân sách'),
-      const _PlaceholderScreen(title: 'Nhóm & Nợ'),
-      const _PlaceholderScreen(title: 'Báo cáo'),
+      const BudgetScreen(),
+      const GroupDebtScreen(),
+      const ReportScreen(),
     ];
 
     return Scaffold(
@@ -111,24 +114,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               label: 'Báo cáo',
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PlaceholderScreen extends StatelessWidget {
-  final String title;
-  const _PlaceholderScreen({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(title)),
-      body: Center(
-        child: Text(
-          'Màn hình $title đang phát triển',
-          style: const TextStyle(color: AppColors.textSecondary),
         ),
       ),
     );
