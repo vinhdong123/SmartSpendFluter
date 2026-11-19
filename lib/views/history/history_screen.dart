@@ -1,10 +1,17 @@
 import 'package:material_ui/material_ui.dart';
 import '../../core/constants/app_colors.dart';
-import '../../models/transaction_model.dart';
+import '../../core/constants/categories.dart';
+import '../../core/utils/formatters.dart';
 import '../../controllers/transaction_controller.dart';
+import '../../models/transaction_model.dart';
+import '../../models/wallet_model.dart';
+import '../transaction/add_transaction_screen.dart';
+import '../widgets/common_widgets.dart';
 
 class HistoryScreen extends StatefulWidget {
-  const HistoryScreen({super.key});
+  final VoidCallback? onChanged;
+
+  const HistoryScreen({super.key, this.onChanged});
 
   @override
   State<HistoryScreen> createState() => _HistoryScreenState();
@@ -13,157 +20,293 @@ class HistoryScreen extends StatefulWidget {
 class _HistoryScreenState extends State<HistoryScreen> {
   final TransactionController _controller = TransactionController();
   final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
 
   List<TransactionModel> _allTransactions = [];
-  List<TransactionModel> _filteredTransactions = [];
+  List<WalletModel> _wallets = [];
   bool _isLoading = true;
-  String? _selectedCategoryFilter;
+
+  DateTime? _monthFilter = DateTime(DateTime.now().year, DateTime.now().month, 1);
+  String? _walletFilter;
+  String? _categoryFilter;
 
   @override
   void initState() {
     super.initState();
     _loadData();
-    _searchController.addListener(_onSearchChanged);
+    _searchController.addListener(() => setState(() {}));
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
   Future<void> _loadData() async {
-    final list = await _controller.fetchTransactions();
-    if (!mounted) return;
-    setState(() {
-      _allTransactions = list;
-      _filteredTransactions = list;
-      _isLoading = false;
-    });
+    try {
+      final list = await _controller.fetchTransactions();
+      final wallets = await _controller.fetchWallets();
+      if (!mounted) return;
+      setState(() {
+        _allTransactions = list;
+        _wallets = wallets;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showSnack(context, 'Không tải được dữ liệu: $e', isError: true);
+    }
   }
 
-  void _onSearchChanged() {
-    setState(() {
-      _filteredTransactions = _controller.filterTransactions(
+  List<TransactionModel> get _filtered => _controller.filterTransactions(
         transactions: _allTransactions,
         searchQuery: _searchController.text,
-        categoryFilter: _selectedCategoryFilter,
+        categoryFilter: _categoryFilter,
+        walletFilter: _walletFilter,
+        month: _monthFilter,
       );
-    });
+
+  Map<String, List<TransactionModel>> _groupByDate(List<TransactionModel> list) {
+    final grouped = <String, List<TransactionModel>>{};
+    for (final tx in list) {
+      grouped.putIfAbsent(friendlyDate(tx.date), () => []).add(tx);
+    }
+    return grouped;
   }
 
-  Map<String, List<TransactionModel>> _groupTransactionsByDate() {
-    final Map<String, List<TransactionModel>> grouped = {};
+  Future<void> _pickMonth() async {
+    final now = DateTime.now();
+    final months = [for (int i = 0; i < 12; i++) DateTime(now.year, now.month - i, 1)];
+    final result = await showPickerSheet<DateTime?>(
+      context,
+      title: 'Chọn thời gian',
+      selected: _monthFilter,
+      options: [
+        const PickerOption<DateTime?>('Tất cả thời gian', null),
+        for (final m in months) PickerOption<DateTime?>('Tháng ${m.month}/${m.year}', m),
+      ],
+    );
+    if (result != null) setState(() => _monthFilter = result.value);
+  }
 
-    for (final tx in _filteredTransactions) {
-      final now = DateTime.now();
-      String dateKey;
-      if (tx.date.year == now.year && tx.date.month == now.month && tx.date.day == now.day) {
-        dateKey = 'Hôm nay · ${tx.date.day.toString().padLeft(2, '0')}/${tx.date.month.toString().padLeft(2, '0')}';
-      } else {
-        dateKey = '${tx.date.day.toString().padLeft(2, '0')}/${tx.date.month.toString().padLeft(2, '0')}';
+  Future<void> _pickWallet() async {
+    final result = await showPickerSheet<String?>(
+      context,
+      title: 'Chọn ví',
+      selected: _walletFilter,
+      options: [
+        const PickerOption<String?>('Tất cả ví', null),
+        for (final w in _wallets) PickerOption<String?>(w.name, w.name, icon: w.icon),
+      ],
+    );
+    if (result != null) setState(() => _walletFilter = result.value);
+  }
+
+  Future<void> _pickCategory() async {
+    final result = await showPickerSheet<String?>(
+      context,
+      title: 'Chọn danh mục',
+      selected: _categoryFilter,
+      options: [
+        const PickerOption<String?>('Tất cả danh mục', null),
+        for (final label in Categories.allLabels)
+          PickerOption<String?>(label, label, icon: Categories.iconOf(label)),
+      ],
+    );
+    if (result != null) setState(() => _categoryFilter = result.value);
+  }
+
+  Future<void> _showActions(TransactionModel tx) async {
+    final action = await showAppSheet<String>(
+      context,
+      builder: (ctx) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SheetHeader(tx.title),
+          Text(
+            '${tx.formattedAmount} · ${tx.category} · ${tx.wallet}',
+            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.edit_outlined, color: AppColors.primaryTeal),
+            title: const Text('Chỉnh sửa'),
+            onTap: () => Navigator.of(ctx).pop('edit'),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
+            title: const Text('Xóa giao dịch', style: TextStyle(color: AppColors.error)),
+            onTap: () => Navigator.of(ctx).pop('delete'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+
+    if (action == 'edit') {
+      final changed = await Navigator.of(context).push<bool>(
+        MaterialPageRoute(
+          builder: (_) => AddTransactionScreen(editing: tx),
+          fullscreenDialog: true,
+        ),
+      );
+      if (changed == true) {
+        await _loadData();
+        widget.onChanged?.call();
       }
-
-      grouped.putIfAbsent(dateKey, () => []).add(tx);
+    } else if (action == 'delete') {
+      final ok = await confirmDialog(
+        context,
+        title: 'Xóa giao dịch',
+        message: 'Xóa "${tx.title}" (${tx.formattedAmount})? Thao tác này không thể hoàn tác.',
+        confirmLabel: 'Xóa',
+        destructive: true,
+      );
+      if (!ok || !mounted) return;
+      try {
+        await _controller.deleteTransaction(tx.id);
+        await _loadData();
+        widget.onChanged?.call();
+        if (mounted) showSnack(context, 'Đã xóa giao dịch');
+      } catch (e) {
+        if (mounted) showSnack(context, 'Không thể xóa: $e', isError: true);
+      }
     }
-
-    return grouped;
   }
 
   @override
   Widget build(BuildContext context) {
-    final groupedData = _groupTransactionsByDate();
+    final filtered = _filtered;
+    final groupedData = _groupByDate(filtered);
+    final income = filtered.where((t) => !t.isExpense).fold<double>(0, (s, t) => s + t.amount);
+    final expense = filtered.where((t) => t.isExpense).fold<double>(0, (s, t) => s + t.amount);
 
     return Scaffold(
       backgroundColor: AppColors.surfaceLight,
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: _loadData,
-          color: AppColors.primaryTeal,
-          child: Column(
-            children: [
-              // Header Row
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Lịch sử',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.search_rounded, color: AppColors.textPrimary),
-                      onPressed: () {},
-                    ),
-                  ],
-                ),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Lịch sử',
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.search_rounded, color: AppColors.textPrimary),
+                    onPressed: () => _searchFocus.requestFocus(),
+                  ),
+                ],
               ),
+            ),
 
-              // Search Input Box
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: TextField(
-                  controller: _searchController,
-                  decoration: InputDecoration(
-                    hintText: 'Tìm theo ghi chú, danh mục...',
-                    hintStyle: const TextStyle(fontSize: 14, color: AppColors.textHint),
-                    prefixIcon: const Icon(Icons.search_rounded, color: AppColors.textSecondary, size: 20),
-                    filled: true,
-                    fillColor: Colors.white,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: AppColors.border),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: AppColors.border),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.5),
-                    ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: TextField(
+                controller: _searchController,
+                focusNode: _searchFocus,
+                decoration: InputDecoration(
+                  hintText: 'Tìm theo ghi chú, danh mục...',
+                  hintStyle: const TextStyle(fontSize: 14, color: AppColors.textHint),
+                  prefixIcon: const Icon(Icons.search_rounded, color: AppColors.textSecondary, size: 20),
+                  suffixIcon: _searchController.text.isEmpty
+                      ? null
+                      : IconButton(
+                          icon: const Icon(Icons.close_rounded, size: 18),
+                          onPressed: _searchController.clear,
+                        ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.5),
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+            ),
+            const SizedBox(height: 12),
 
-              // Filter Chips Row
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  _buildFilterChip(
+                    _monthFilter == null ? 'Tất cả thời gian' : 'Tháng ${_monthFilter!.month}/${_monthFilter!.year}',
+                    isActive: _monthFilter != null,
+                    onTap: _pickMonth,
+                  ),
+                  const SizedBox(width: 8),
+                  _buildFilterChip(_walletFilter ?? 'Tất cả ví', isActive: _walletFilter != null, onTap: _pickWallet),
+                  const SizedBox(width: 8),
+                  _buildFilterChip(_categoryFilter ?? 'Danh mục', isActive: _categoryFilter != null, onTap: _pickCategory),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            if (!_isLoading && filtered.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Row(
                   children: [
-                    _buildFilterChip('Tháng 11', isSelected: true),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('Tất cả ví'),
-                    const SizedBox(width: 8),
-                    _buildFilterChip('Danh mục'),
+                    Text(
+                      'Thu ${formatVND(income)}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.success),
+                    ),
+                    const SizedBox(width: 14),
+                    Text(
+                      'Chi ${formatVND(expense)}',
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFEF4444)),
+                    ),
+                    const Spacer(),
+                    Text(
+                      '${filtered.length} giao dịch',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textHint),
+                    ),
                   ],
                 ),
               ),
-              const SizedBox(height: 16),
+            const SizedBox(height: 8),
 
-              // Transactions List grouped by date
-              Expanded(
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _loadData,
+                color: AppColors.primaryTeal,
                 child: _isLoading
-                    ? const Center(
-                        child: CircularProgressIndicator(color: AppColors.primaryTeal),
-                      )
-                    : _filteredTransactions.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'Không tìm thấy giao dịch nào',
-                              style: TextStyle(color: AppColors.textSecondary),
-                            ),
+                    ? const Center(child: CircularProgressIndicator(color: AppColors.primaryTeal))
+                    : filtered.isEmpty
+                        ? ListView(
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            children: [
+                              EmptyState(
+                                icon: Icons.search_off_rounded,
+                                message: _allTransactions.isEmpty
+                                    ? 'Chưa có giao dịch nào'
+                                    : 'Không tìm thấy giao dịch phù hợp',
+                              ),
+                            ],
                           )
                         : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                            physics: const AlwaysScrollableScrollPhysics(),
+                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 90),
                             itemCount: groupedData.keys.length,
                             itemBuilder: (context, index) {
                               final dateHeader = groupedData.keys.elementAt(index);
@@ -205,26 +348,39 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             },
                           ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _buildFilterChip(String label, {bool isSelected = false}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.lightMint,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: AppColors.primaryTeal,
+  Widget _buildFilterChip(String label, {required bool isActive, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isActive ? AppColors.primaryTeal : AppColors.lightMint,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Row(
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: isActive ? Colors.white : AppColors.primaryTeal,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: isActive ? Colors.white : AppColors.primaryTeal,
+            ),
+          ],
         ),
       ),
     );
@@ -234,6 +390,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final amountColor = tx.isExpense ? const Color(0xFFEF4444) : const Color(0xFF10B981);
 
     return ListTile(
+      onTap: () => _showActions(tx),
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       leading: Container(
         width: 44,
@@ -242,34 +399,21 @@ class _HistoryScreenState extends State<HistoryScreen> {
           color: AppColors.lightMint,
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Icon(
-          !tx.isExpense ? Icons.attach_money_rounded : tx.categoryIcon,
-          color: AppColors.primaryTeal,
-          size: 22,
-        ),
+        child: Icon(tx.categoryIcon, color: AppColors.primaryTeal, size: 22),
       ),
       title: Text(
         tx.title,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.bold,
-          color: AppColors.textPrimary,
-        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
       ),
       subtitle: Text(
         '${tx.category} · ${tx.wallet}',
-        style: const TextStyle(
-          fontSize: 13,
-          color: AppColors.textSecondary,
-        ),
+        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
       ),
       trailing: Text(
         tx.formattedAmount,
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.bold,
-          color: amountColor,
-        ),
+        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: amountColor),
       ),
     );
   }

@@ -1,4 +1,6 @@
 import 'package:material_ui/material_ui.dart';
+import '../core/constants/categories.dart';
+import '../core/utils/formatters.dart';
 
 class TransactionModel {
   final String id;
@@ -21,37 +23,9 @@ class TransactionModel {
     this.note,
   });
 
-  String get formattedAmount {
-    final valueStr = amount.toInt().abs().toString().replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (Match m) => '${m[1]}.',
-        );
-    final prefix = isExpense ? '-' : '+';
-    return '$prefix$valueStrđ';
-  }
+  String get formattedAmount => '${isExpense ? '-' : '+'}${formatVND(amount.abs())}';
 
-  IconData get categoryIcon {
-    switch (category.toLowerCase()) {
-      case 'ăn uống':
-        return Icons.local_cafe_outlined;
-      case 'di chuyển':
-        return Icons.directions_car_outlined;
-      case 'mua sắm':
-        return Icons.shopping_bag_outlined;
-      case 'hóa đơn':
-        return Icons.bolt_outlined;
-      case 'giải trí':
-        return Icons.sports_esports_outlined;
-      case 'học tập':
-        return Icons.school_outlined;
-      case 'sức khỏe':
-        return Icons.favorite_border_rounded;
-      case 'thu nhập':
-        return Icons.attach_money_rounded;
-      default:
-        return Icons.more_horiz_rounded;
-    }
-  }
+  IconData get categoryIcon => Categories.iconOf(category);
 
   Map<String, dynamic> toJson() {
     return {

@@ -2,6 +2,8 @@ import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 import '../models/user_model.dart';
 import '../models/transaction_model.dart';
+import '../core/constants/categories.dart';
+import '../core/utils/formatters.dart';
 
 class SQLiteDatabaseService {
   SQLiteDatabaseService._();
@@ -461,24 +463,69 @@ class SQLiteDatabaseService {
     ''');
   }
 
-  // ================= HELPER METHODS FOR APP ENTITIES ================= //
+  // ================= CURRENT USER ================= //
 
-  /// Ensure user exists in database and has a default wallet
-  Future<void> _ensureUserAndWalletExists(Database db, String userId, String displayName, String email) async {
-    final validUserId = userId.trim().isEmpty ? 'default_user' : userId.trim();
-    final validEmail = email.trim().isEmpty ? '$validUserId@smartspend.vn' : email.trim().toLowerCase();
-    final validName = displayName.trim().isEmpty ? 'User' : displayName.trim();
+  String _uid = 'default_user';
+  Future<void> _ready = Future<void>.value();
 
-    await db.execute('''
-      INSERT OR IGNORE INTO users (id, email, display_name, password_hash)
-      VALUES (?, ?, ?, '123456');
-    ''', [validUserId, validEmail, validName]);
+  /// Id người dùng đang đăng nhập (mọi truy vấn đều lọc theo id này).
+  String get uid => _uid;
+  bool get isDemoUser => _uid == 'demo_user_id';
 
-    await db.execute('''
-      INSERT OR IGNORE INTO wallets (id, user_id, name, type, initial_balance)
-      VALUES (?, ?, 'Ví chính', 'cash', 0);
-    ''', ['wallet_$validUserId', validUserId]);
+  /// Database đã được seed đầy đủ user + ví của người dùng hiện tại.
+  Future<Database> get readyDatabase async {
+    await _ready;
+    return database;
   }
+
+  /// Gọi ngay sau khi đăng nhập / khôi phục phiên.
+  void setCurrentUser(UserModel user) {
+    final id = user.uid.trim().isEmpty ? 'default_user' : user.uid.trim();
+    _uid = id;
+    _ready = _seedUser(user, id).catchError((Object _) {});
+  }
+
+  Future<void> _seedUser(UserModel user, String id) async {
+    final db = await database;
+
+    final existing = await db.query('users', columns: ['id'], where: 'id = ?', whereArgs: [id], limit: 1);
+    if (existing.isEmpty) {
+      final name = user.fullName.trim().isEmpty ? 'User' : user.fullName.trim();
+      final email = user.email.trim().isEmpty ? '$id@smartspend.local' : user.email.trim().toLowerCase();
+      try {
+        await db.insert('users', {
+          'id': id,
+          'email': email,
+          'display_name': name,
+          'password_hash': '*',
+        });
+      } catch (_) {
+        // Email đã thuộc về tài khoản local khác -> dùng email nội bộ.
+        await db.insert('users', {
+          'id': id,
+          'email': '$id@smartspend.local',
+          'display_name': name,
+          'password_hash': '*',
+        });
+      }
+    }
+
+    final isDemo = id == 'demo_user_id';
+    final defaults = <(String, String, String, int)>[
+      ('w_${id}_cash', 'Tiền mặt', 'cash', 0),
+      ('w_${id}_momo', 'Ví MoMo', 'ewallet', 0),
+      ('w_${id}_bank', 'Ngân hàng', 'bank', isDemo ? 12450000 : 0),
+    ];
+    for (final w in defaults) {
+      await db.insert(
+        'wallets',
+        {'id': w.$1, 'user_id': id, 'name': w.$2, 'type': w.$3, 'initial_balance': w.$4},
+        conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    }
+  }
+
+  // ================= USERS ================= //
 
   /// Insert user
   Future<void> insertUser(UserModel user, String password) async {
@@ -498,19 +545,7 @@ class SQLiteDatabaseService {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-
-    // Create primary default wallet for this user
-    await db.insert(
-      'wallets',
-      {
-        'id': 'wallet_$validId',
-        'user_id': validId,
-        'name': 'Ví chính',
-        'type': 'cash',
-        'initial_balance': 0,
-      },
-      conflictAlgorithm: ConflictAlgorithm.ignore,
-    );
+    // Ví mặc định được tạo trong setCurrentUser() ngay sau khi đăng nhập.
   }
 
   /// Get user by email & password
@@ -545,137 +580,163 @@ class SQLiteDatabaseService {
     return maps.isNotEmpty;
   }
 
+  // ================= TRANSACTIONS ================= //
+
+  Future<String> resolveWalletId(String name) async {
+    final db = await readyDatabase;
+    return _walletIdByName(db, name);
+  }
+
+  Future<String> _walletIdByName(DatabaseExecutor db, String name) async {
+    final rows = await db.query(
+      'wallets',
+      columns: ['id'],
+      where: 'user_id = ? AND name = ? AND is_archived = 0',
+      whereArgs: [_uid, name],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) return rows.first['id'] as String;
+
+    final any = await db.query(
+      'wallets',
+      columns: ['id'],
+      where: 'user_id = ? AND is_archived = 0',
+      whereArgs: [_uid],
+      orderBy: 'rowid',
+      limit: 1,
+    );
+    if (any.isNotEmpty) return any.first['id'] as String;
+    throw StateError('Chưa có ví nào. Hãy tạo ví trước khi thêm giao dịch.');
+  }
+
+  Map<String, Object?> _transactionRow(TransactionModel t, String walletId) {
+    final amountInt = t.amount.round().abs();
+    final category = t.category.trim().isEmpty ? 'Khác' : t.category.trim();
+    final note = (t.note ?? '').trim();
+    return {
+      'id': t.id.trim().isEmpty ? 'tx_${DateTime.now().microsecondsSinceEpoch}' : t.id.trim(),
+      'user_id': _uid,
+      'wallet_id': walletId,
+      'category_code': Categories.codeOf(category),
+      'type': t.isExpense ? 'expense' : 'income',
+      'kind': category,
+      'amount': amountInt <= 0 ? 1 : amountInt,
+      'occurred_on': dbDate(t.date),
+      'note': note.isEmpty ? t.title : note,
+      'created_at': t.date.toIso8601String(),
+    };
+  }
+
   /// Insert transaction into SQLite
   Future<void> insertTransaction(TransactionModel transaction) async {
-    final db = await database;
-
-    const defaultUserId = 'default_user';
-    const defaultWalletId = 'default_wallet';
-    await _ensureUserAndWalletExists(db, defaultUserId, 'Người dùng', 'user@smartspend.vn');
-
-    final dateStr = '${transaction.date.year.toString().padLeft(4, '0')}-${transaction.date.month.toString().padLeft(2, '0')}-${transaction.date.day.toString().padLeft(2, '0')}';
-    final amountInt = transaction.amount.toInt().abs();
-
+    final db = await readyDatabase;
+    final walletId = await _walletIdByName(db, transaction.wallet);
     await db.insert(
       'transactions',
-      {
-        'id': transaction.id.trim().isEmpty ? 'tx_${DateTime.now().millisecondsSinceEpoch}' : transaction.id.trim(),
-        'user_id': defaultUserId,
-        'wallet_id': defaultWalletId,
-        'category_code': transaction.category.toLowerCase().replaceAll(' ', '_'),
-        'type': transaction.isExpense ? 'expense' : 'income',
-        'kind': transaction.category.trim().isEmpty ? 'general' : transaction.category.trim(),
-        'amount': amountInt <= 0 ? 1 : amountInt,
-        'occurred_on': dateStr,
-        'note': transaction.note ?? transaction.title,
-        'created_at': DateTime.now().toIso8601String(),
-      },
+      _transactionRow(transaction, walletId),
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
   }
 
-  /// Get all transactions from SQLite
-  Future<List<TransactionModel>> getAllTransactions() async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
+  Future<void> updateTransaction(TransactionModel transaction) async {
+    final db = await readyDatabase;
+    final walletId = await _walletIdByName(db, transaction.wallet);
+    final row = _transactionRow(transaction, walletId)
+      ..remove('id')
+      ..remove('user_id');
+    await db.update(
       'transactions',
-      orderBy: 'occurred_on DESC, created_at DESC',
+      row,
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [transaction.id, _uid],
     );
-
-    return maps.map((map) {
-      final isExpense = (map['type'] as String?) == 'expense';
-      final kindStr = map['kind'] as String? ?? 'Khác';
-      final noteStr = map['note'] as String?;
-      final occurredOnStr = map['occurred_on'] as String? ?? '2026-11-04';
-
-      return TransactionModel(
-        id: map['id'] as String,
-        title: noteStr != null && noteStr.isNotEmpty ? noteStr : kindStr,
-        amount: (map['amount'] as num).toDouble(),
-        isExpense: isExpense,
-        category: kindStr,
-        wallet: 'Ví chính',
-        date: DateTime.tryParse(occurredOnStr) ?? DateTime.now(),
-        note: noteStr,
-      );
-    }).toList();
   }
 
-  /// Delete transaction by ID
+  TransactionModel transactionFromRow(Map<String, Object?> map) {
+    final kind = (map['kind'] as String?) ?? 'Khác';
+    final note = map['note'] as String?;
+    final day = DateTime.tryParse((map['occurred_on'] as String?) ?? '') ?? DateTime.now();
+    var date = day;
+    final created = DateTime.tryParse((map['created_at'] as String?) ?? '')?.toLocal();
+    if (created != null && isSameDay(created, day)) {
+      date = created;
+    }
+    return TransactionModel(
+      id: map['id'] as String,
+      title: note != null && note.isNotEmpty ? note : kind,
+      amount: (map['amount'] as num).toDouble(),
+      isExpense: (map['type'] as String?) == 'expense',
+      category: kind,
+      wallet: (map['wallet_name'] as String?) ?? 'Ví',
+      date: date,
+      note: note,
+    );
+  }
+
+  /// Giao dịch thu/chi của người dùng hiện tại (mới nhất trước).
+  Future<List<TransactionModel>> getAllTransactions({
+    DateTime? from,
+    DateTime? toExclusive,
+    int? limit,
+  }) async {
+    final db = await readyDatabase;
+    final where = StringBuffer("t.user_id = ? AND t.type IN ('income','expense')");
+    final args = <Object?>[_uid];
+    if (from != null) {
+      where.write(' AND t.occurred_on >= ?');
+      args.add(dbDate(from));
+    }
+    if (toExclusive != null) {
+      where.write(' AND t.occurred_on < ?');
+      args.add(dbDate(toExclusive));
+    }
+    final rows = await db.rawQuery('''
+      SELECT t.id, t.type, t.kind, t.amount, t.occurred_on, t.note, t.created_at,
+             w.name AS wallet_name
+      FROM transactions t
+      LEFT JOIN wallets w ON w.id = t.wallet_id AND w.user_id = t.user_id
+      WHERE $where
+      ORDER BY t.occurred_on DESC, t.created_at DESC
+      ${limit != null ? 'LIMIT $limit' : ''}
+    ''', args);
+    return rows.map(transactionFromRow).toList();
+  }
+
+  /// Delete transaction by ID (đồng thời gỡ liên kết với khoản nợ nếu có)
   Future<void> deleteTransaction(String id) async {
-    final db = await database;
-    await db.delete(
-      'transactions',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final db = await readyDatabase;
+    await db.transaction((txn) async {
+      await txn.delete('debt_payments', where: 'transaction_id = ?', whereArgs: [id]);
+      await txn.update(
+        'debts',
+        {'opening_transaction_id': null},
+        where: 'opening_transaction_id = ? AND user_id = ?',
+        whereArgs: [id, _uid],
+      );
+      await txn.delete('transactions', where: 'id = ? AND user_id = ?', whereArgs: [id, _uid]);
+    });
   }
 
-  // ================= BUDGET OPERATIONS ================= //
-
-  Future<Map<String, dynamic>> getBudgetData() async {
-    final db = await database;
-
-    // Ensure default budget & budget items exist
-    await db.execute('''
-      INSERT OR IGNORE INTO budgets (id, user_id, month_start, total_limit, alert_threshold_pct)
-      VALUES ('budget_2026_11', 'default_user', '2026-11-01', 8000000, 80);
-    ''');
-
-    await db.execute('''
-      INSERT OR IGNORE INTO budget_items (id, budget_id, category_code, limit_amount, alert_threshold_pct)
-      VALUES ('bi_1', 'budget_2026_11', 'an_uong', 3000000, 80);
-    ''');
-    await db.execute('''
-      INSERT OR IGNORE INTO budget_items (id, budget_id, category_code, limit_amount, alert_threshold_pct)
-      VALUES ('bi_2', 'budget_2026_11', 'di_chuyen', 2000000, 80);
-    ''');
-    await db.execute('''
-      INSERT OR IGNORE INTO budget_items (id, budget_id, category_code, limit_amount, alert_threshold_pct)
-      VALUES ('bi_3', 'budget_2026_11', 'mua_sam', 2000000, 80);
-    ''');
-
-    final budgetRows = await db.query('budgets');
-    final itemRows = await db.query('budget_items');
-
-    return {
-      'budget': budgetRows.isNotEmpty ? budgetRows.first : {},
-      'items': itemRows,
-    };
-  }
-
-  // ================= GROUP & DEBT OPERATIONS ================= //
-
-  Future<Map<String, dynamic>> getGroupAndDebtData() async {
-    final db = await database;
-
-    // Ensure default group exists
-    await db.execute('''
-      INSERT OR IGNORE INTO expense_groups (id, owner_id, name)
-      VALUES ('group_dalat', 'default_user', 'Du lịch Đà Lạt');
-    ''');
-
-    final groups = await db.query('expense_groups');
-    final debts = await db.query('debts');
-
-    return {
-      'groups': groups,
-      'debts': debts,
-    };
-  }
-
-  // ================= REPORT OPERATIONS ================= //
-
-  Future<List<Map<String, dynamic>>> getReportCategoryBreakdown() async {
-    final db = await database;
-    final List<Map<String, dynamic>> result = await db.rawQuery('''
-      SELECT kind as category, SUM(amount) as total
+  /// Tổng thu / chi trong khoảng [from, toExclusive)
+  Future<({int income, int expense})> getPeriodTotals(DateTime from, DateTime toExclusive) async {
+    final db = await readyDatabase;
+    final rows = await db.rawQuery('''
+      SELECT type, COALESCE(SUM(amount), 0) AS total
       FROM transactions
-      WHERE type = 'expense'
-      GROUP BY kind
-      ORDER BY total DESC;
-    ''');
-
-    return result;
+      WHERE user_id = ? AND type IN ('income','expense')
+        AND occurred_on >= ? AND occurred_on < ?
+      GROUP BY type
+    ''', [_uid, dbDate(from), dbDate(toExclusive)]);
+    var income = 0;
+    var expense = 0;
+    for (final r in rows) {
+      final total = (r['total'] as num).toInt();
+      if (r['type'] == 'income') {
+        income = total;
+      } else {
+        expense = total;
+      }
+    }
+    return (income: income, expense: expense);
   }
 }

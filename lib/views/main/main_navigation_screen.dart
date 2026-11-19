@@ -7,6 +7,7 @@ import '../budget/budget_screen.dart';
 import '../group_debt/group_debt_screen.dart';
 import '../report/report_screen.dart';
 import '../transaction/add_transaction_screen.dart';
+import '../../services/sqlite_database_service.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   final UserModel user;
@@ -19,14 +20,12 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
-  late Key _homeKey;
-  late Key _historyKey;
+  Key _dataKey = UniqueKey();
 
   @override
   void initState() {
     super.initState();
-    _homeKey = UniqueKey();
-    _historyKey = UniqueKey();
+    SQLiteDatabaseService.instance.setCurrentUser(widget.user);
   }
 
   void _openAddTransactionModal() async {
@@ -38,25 +37,25 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
 
     if (result == true) {
-      setState(() {
-        _homeKey = UniqueKey();
-        _historyKey = UniqueKey();
-      });
+      _refreshAll();
     }
   }
+
+  void _refreshAll() => setState(() => _dataKey = UniqueKey());
 
   @override
   Widget build(BuildContext context) {
     final List<Widget> pages = [
       HomeScreen(
-        key: _homeKey,
+        key: _dataKey,
         user: widget.user,
         onOpenAddTransaction: _openAddTransactionModal,
+        onOpenHistory: () => setState(() => _currentIndex = 1),
       ),
-      HistoryScreen(key: _historyKey),
-      const BudgetScreen(),
-      const GroupDebtScreen(),
-      const ReportScreen(),
+      HistoryScreen(key: _dataKey, onChanged: () => _dataKey = UniqueKey()),
+      BudgetScreen(key: _dataKey),
+      GroupDebtScreen(key: _dataKey),
+      ReportScreen(key: _dataKey),
     ];
 
     return Scaffold(

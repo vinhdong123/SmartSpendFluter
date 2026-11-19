@@ -1,18 +1,25 @@
 import 'package:material_ui/material_ui.dart';
 import '../../core/constants/app_colors.dart';
-import '../../models/user_model.dart';
+import '../../core/utils/formatters.dart';
+import '../../controllers/auth_controller.dart';
+import '../../controllers/home_controller.dart';
 import '../../models/transaction_model.dart';
-import '../../controllers/transaction_controller.dart';
-import '../../repositories/transaction_repository.dart';
+import '../../models/user_model.dart';
+import '../auth/login_screen.dart';
+import '../goals/savings_goals_screen.dart';
+import '../wallet/wallets_screen.dart';
+import '../widgets/common_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
   final UserModel user;
   final VoidCallback? onOpenAddTransaction;
+  final VoidCallback? onOpenHistory;
 
   const HomeScreen({
     super.key,
     required this.user,
     this.onOpenAddTransaction,
+    this.onOpenHistory,
   });
 
   @override
@@ -20,10 +27,9 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TransactionController _controller = TransactionController();
-  final TransactionRepository _repository = TransactionRepository.instance;
+  final HomeController _controller = HomeController();
 
-  List<TransactionModel> _transactions = [];
+  HomeData? _data;
   bool _isLoading = true;
 
   @override
@@ -33,28 +39,162 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _loadData() async {
-    final list = await _controller.fetchTransactions();
-    if (!mounted) return;
-    setState(() {
-      _transactions = list;
-      _isLoading = false;
-    });
+    try {
+      final data = await _controller.load();
+      if (!mounted) return;
+      setState(() {
+        _data = data;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showSnack(context, 'Không tải được dữ liệu: $e', isError: true);
+    }
   }
 
-  String _formatVND(double amount) {
-    final val = amount.toInt().abs();
-    final formatted = val.toString().replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (Match m) => '${m[1]}.',
-        );
-    return '$formattedđ';
+  void _openGoals() {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SavingsGoalsScreen())).then((_) => _loadData());
+  }
+
+  void _showNotifications() {
+    final alerts = _data?.alerts ?? const <String>[];
+    showAppSheet<void>(
+      context,
+      builder: (ctx) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SheetHeader('Thông báo'),
+          if (alerts.isEmpty)
+            const EmptyState(
+              icon: Icons.notifications_none_rounded,
+              message: 'Chưa có cảnh báo nào.\nNgân sách và khoản nợ của bạn đang ổn.',
+            )
+          else
+            for (final a in alerts)
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.notifications_active_outlined, color: Color(0xFFD97706), size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        a,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF92400E),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+
+  void _showSettings() {
+    showAppSheet<void>(
+      context,
+      builder: (ctx) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SheetHeader('Tài khoản'),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 24,
+                backgroundColor: AppColors.lightMint,
+                child: Text(
+                  widget.user.initials,
+                  style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryTeal),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      widget.user.fullName,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                    ),
+                    Text(
+                      widget.user.email,
+                      style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Divider(color: AppColors.border),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.account_balance_wallet_outlined, color: AppColors.primaryTeal),
+            title: const Text('Ví của tôi'),
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const WalletsScreen())).then((_) => _loadData());
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.track_changes_outlined, color: AppColors.primaryTeal),
+            title: const Text('Mục tiêu tiết kiệm'),
+            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.textHint),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _openGoals();
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.logout_rounded, color: AppColors.error),
+            title: const Text('Đăng xuất', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _logout();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _logout() async {
+    final ok = await confirmDialog(
+      context,
+      title: 'Đăng xuất',
+      message: 'Bạn có chắc muốn đăng xuất khỏi SmartSpend?',
+      confirmLabel: 'Đăng xuất',
+      destructive: true,
+    );
+    if (!ok || !mounted) return;
+    await AuthController().logout();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final totalIncome = _repository.calculateTotalIncome(_transactions);
-    final totalExpense = _repository.calculateTotalExpense(_transactions);
-    final totalBalance = _repository.calculateBalance(_transactions);
+    final data = _data;
+    final now = DateTime.now();
+    final alerts = data?.alerts ?? const <String>[];
 
     return Scaffold(
       backgroundColor: AppColors.surfaceLight,
@@ -72,37 +212,55 @@ class _HomeScreenState extends State<HomeScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Xin chào, ${widget.user.fullName}',
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textSecondary,
-                            fontWeight: FontWeight.w400,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Xin chào, ${widget.user.fullName}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w400,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 2),
-                        const Text(
-                          'Tháng 11, 2026',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.textPrimary,
+                          const SizedBox(height: 2),
+                          Text(
+                            'Tháng ${now.month}, ${now.year}',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppColors.textPrimary,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                     Row(
                       children: [
                         IconButton(
                           icon: const Icon(Icons.tune_rounded, color: AppColors.textPrimary),
-                          onPressed: () {},
+                          onPressed: _showSettings,
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.notifications_none_rounded, color: AppColors.textPrimary),
-                          onPressed: () {},
+                        Stack(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.notifications_none_rounded, color: AppColors.textPrimary),
+                              onPressed: _showNotifications,
+                            ),
+                            if (alerts.isNotEmpty)
+                              Positioned(
+                                right: 10,
+                                top: 10,
+                                child: Container(
+                                  width: 9,
+                                  height: 9,
+                                  decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),
@@ -110,7 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 20),
 
-                // Dark Teal Total Balance Card (Dynamic from SQLite)
+                // Dark Teal Total Balance Card
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.all(22),
@@ -138,7 +296,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _formatVND(totalBalance),
+                        formatVND(data?.balance ?? 0),
                         style: const TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,
@@ -149,52 +307,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(height: 20),
                       Row(
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Thu nhập',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white.withValues(alpha: 0.75),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _formatVND(totalIncome),
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Chi tiêu',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.white.withValues(alpha: 0.75),
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  _formatVND(totalExpense),
-                                  style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                          Expanded(child: _buildSummaryColumn('Thu nhập tháng này', data?.monthIncome ?? 0)),
+                          Expanded(child: _buildSummaryColumn('Chi tiêu tháng này', data?.monthExpense ?? 0)),
                         ],
                       ),
                     ],
@@ -202,48 +316,47 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                // Budget Alert Banner
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFEF3C7),
+                // Budget / debt alert banner
+                if (alerts.isNotEmpty) ...[
+                  InkWell(
+                    onTap: _showNotifications,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: const Color(0xFFFDE68A),
-                      width: 1,
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFDE68A), width: 1),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.notifications_active_outlined, color: Color(0xFFD97706), size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              alerts.length > 1 ? '${alerts.first} (+${alerts.length - 1} cảnh báo)' : alerts.first,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF92400E),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  child: Row(
-                    children: const [
-                      Icon(
-                        Icons.notifications_active_outlined,
-                        color: Color(0xFFD97706),
-                        size: 20,
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'Ăn uống đã dùng 85% ngân sách tháng',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF92400E),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
+                  const SizedBox(height: 20),
+                ],
 
                 // Quick Actions (3 cards)
                 Row(
                   children: [
                     Expanded(
                       child: _buildQuickActionCard(
-                        icon: Icons.camera_alt_outlined,
-                        label: 'Chụp nhanh',
+                        icon: Icons.add_circle_outline_rounded,
+                        label: 'Thêm nhanh',
                         onTap: widget.onOpenAddTransaction,
                       ),
                     ),
@@ -252,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: _buildQuickActionCard(
                         icon: Icons.receipt_long_outlined,
                         label: 'Quét hóa đơn',
-                        onTap: widget.onOpenAddTransaction,
+                        onTap: () => showSnack(context, 'Quét hóa đơn cần tích hợp camera / OCR — sẽ bổ sung ở phiên bản sau.'),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -260,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: _buildQuickActionCard(
                         icon: Icons.track_changes_outlined,
                         label: 'Mục tiêu',
-                        onTap: () {},
+                        onTap: _openGoals,
                       ),
                     ),
                   ],
@@ -270,8 +383,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Recent Transactions Header
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: const [
-                    Text(
+                  children: [
+                    const Text(
                       'Giao dịch gần đây',
                       style: TextStyle(
                         fontSize: 16,
@@ -279,11 +392,18 @@ class _HomeScreenState extends State<HomeScreen> {
                         color: AppColors.textPrimary,
                       ),
                     ),
+                    if (widget.onOpenHistory != null)
+                      TextButton(
+                        onPressed: widget.onOpenHistory,
+                        child: const Text(
+                          'Xem tất cả',
+                          style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryTeal),
+                        ),
+                      ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 4),
 
-                // Recent Transactions Card Container (Dynamic from SQLite)
                 Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -293,25 +413,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: _isLoading
                       ? const Padding(
                           padding: EdgeInsets.all(32.0),
-                          child: Center(
-                            child: CircularProgressIndicator(color: AppColors.primaryTeal),
-                          ),
+                          child: Center(child: CircularProgressIndicator(color: AppColors.primaryTeal)),
                         )
-                      : _transactions.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(24.0),
-                              child: Center(
-                                child: Text(
-                                  'Chưa có giao dịch nào',
-                                  style: TextStyle(color: AppColors.textSecondary),
-                                ),
-                              ),
+                      : (data == null || data.recent.isEmpty)
+                          ? EmptyState(
+                              icon: Icons.receipt_long_outlined,
+                              message: 'Chưa có giao dịch nào.\nGhi lại khoản thu chi đầu tiên của bạn!',
+                              actionLabel: 'Thêm giao dịch',
+                              onAction: widget.onOpenAddTransaction,
                             )
                           : Column(
                               children: [
-                                for (int i = 0; i < _transactions.length; i++) ...[
-                                  _buildTransactionTile(_transactions[i]),
-                                  if (i < _transactions.length - 1)
+                                for (int i = 0; i < data.recent.length; i++) ...[
+                                  _buildTransactionTile(data.recent[i]),
+                                  if (i < data.recent.length - 1)
                                     const Divider(height: 1, indent: 64, color: AppColors.border),
                                 ],
                               ],
@@ -323,6 +438,23 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildSummaryColumn(String label, int value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: Colors.white.withValues(alpha: 0.75)),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          formatVND(value),
+          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+      ],
     );
   }
 
@@ -349,11 +481,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: AppColors.lightMint,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: Icon(
-                icon,
-                color: AppColors.primaryTeal,
-                size: 22,
-              ),
+              child: Icon(icon, color: AppColors.primaryTeal, size: 22),
             ),
             const SizedBox(height: 10),
             Text(
@@ -373,7 +501,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildTransactionTile(TransactionModel tx) {
     final amountColor = tx.isExpense ? const Color(0xFFEF4444) : const Color(0xFF10B981);
-    final isIncome = !tx.isExpense;
+    final time = '${two(tx.date.hour)}:${two(tx.date.minute)}';
+    final when = isSameDay(tx.date, DateTime.now()) ? time : '${formatDayMonth(tx.date)} · $time';
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -384,34 +513,21 @@ class _HomeScreenState extends State<HomeScreen> {
           color: AppColors.lightMint,
           borderRadius: BorderRadius.circular(14),
         ),
-        child: Icon(
-          isIncome ? Icons.attach_money_rounded : tx.categoryIcon,
-          color: AppColors.primaryTeal,
-          size: 22,
-        ),
+        child: Icon(tx.categoryIcon, color: AppColors.primaryTeal, size: 22),
       ),
       title: Text(
         tx.title,
-        style: const TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.bold,
-          color: AppColors.textPrimary,
-        ),
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
       ),
       subtitle: Text(
-        '${tx.category} · ${tx.date.hour.toString().padLeft(2, '0')}:${tx.date.minute.toString().padLeft(2, '0')}',
-        style: const TextStyle(
-          fontSize: 13,
-          color: AppColors.textSecondary,
-        ),
+        '${tx.category} · $when',
+        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
       ),
       trailing: Text(
         tx.formattedAmount,
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.bold,
-          color: amountColor,
-        ),
+        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: amountColor),
       ),
     );
   }
