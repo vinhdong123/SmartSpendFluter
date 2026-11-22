@@ -1,3 +1,4 @@
+import '../services/sync_service.dart';
 import '../models/debt_model.dart';
 import '../models/group_models.dart';
 import '../models/wallet_model.dart';
@@ -53,7 +54,7 @@ class GroupDebtController {
     String? note,
     String? walletName,
   }) =>
-      _sqlite.addDebt(
+      markSynced(_sqlite.addDebt(
         counterparty: counterparty,
         isBorrowed: isBorrowed,
         amount: amount,
@@ -61,10 +62,19 @@ class GroupDebtController {
         dueOn: dueOn,
         note: note,
         walletName: walletName,
-      );
+      ));
 
   Future<void> payDebt(DebtModel debt, int amount, String walletName) =>
-      _sqlite.recordDebtPayment(debt: debt, amount: amount, walletName: walletName);
+      markSynced(_sqlite.recordDebtPayment(debt: debt, amount: amount, walletName: walletName));
 
-  Future<void> archiveDebt(String id) => _sqlite.archiveDebt(id);
+  Future<void> archiveDebt(String id) => markSynced(_sqlite.archiveDebt(id));
+
+  /// Kéo dữ liệu nhóm mới nhất từ Firestore. Trả về (lỗi, có thay đổi).
+  Future<({String? error, bool changed})> syncGroups() => SyncService.instance.pullGroups();
+
+  /// Thêm người dùng SmartSpend khác (theo email) vào nhóm.
+  Future<String> addMemberByEmail(String groupId, String email) =>
+      SyncService.instance.addUserToGroup(groupId, email);
+
+  bool get canShareGroups => SyncService.instance.isActive;
 }

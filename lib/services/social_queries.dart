@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:sqflite/sqflite.dart';
 import '../core/utils/formatters.dart';
 import '../models/debt_model.dart';
 import '../models/group_models.dart';
 import 'sqlite_database_service.dart';
+import 'sync_service.dart';
 
 /// Nhóm chi tiêu chung và sổ nợ.
 extension SocialQueries on SQLiteDatabaseService {
@@ -43,6 +46,7 @@ extension SocialQueries on SQLiteDatabaseService {
         await _insertContactMember(txn, groupId, m, seq++);
       }
     });
+    unawaited(SyncService.instance.upsertGroup(groupId, create: true));
     return groupId;
   }
 
@@ -51,6 +55,7 @@ extension SocialQueries on SQLiteDatabaseService {
     await db.transaction((txn) async {
       await _insertContactMember(txn, groupId, name, 0);
     });
+    unawaited(SyncService.instance.upsertGroup(groupId));
   }
 
   Future<List<GroupDetail>> getGroups() async {
@@ -214,11 +219,16 @@ extension SocialQueries on SQLiteDatabaseService {
         });
       }
     });
+    unawaited(SyncService.instance.upsertExpense(groupId, expenseId));
   }
 
   Future<void> deleteGroupExpense(String expenseId) async {
     final db = await readyDatabase;
+    final owner = await db.query('group_expenses', columns: ['group_id'], where: 'id = ?', whereArgs: [expenseId], limit: 1);
     await db.delete('group_expenses', where: 'id = ?', whereArgs: [expenseId]);
+    if (owner.isNotEmpty) {
+      unawaited(SyncService.instance.deleteExpense(owner.first['group_id'] as String, expenseId));
+    }
   }
 
   Future<void> recordGroupSettlement({
@@ -228,14 +238,16 @@ extension SocialQueries on SQLiteDatabaseService {
     required int amount,
   }) async {
     final db = await readyDatabase;
+    final settlementId = 'gs_${DateTime.now().microsecondsSinceEpoch}';
     await db.insert('group_settlements', {
-      'id': 'gs_${DateTime.now().microsecondsSinceEpoch}',
+      'id': settlementId,
       'group_id': groupId,
       'from_member_id': fromMemberId,
       'to_member_id': toMemberId,
       'amount': amount,
       'occurred_on': dbDate(DateTime.now()),
     });
+    unawaited(SyncService.instance.upsertSettlement(groupId, settlementId));
   }
 
   // ================= DEBTS ================= //

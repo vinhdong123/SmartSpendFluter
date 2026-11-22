@@ -4,6 +4,7 @@ import '../models/user_model.dart';
 import '../models/transaction_model.dart';
 import '../core/constants/categories.dart';
 import '../core/utils/formatters.dart';
+import 'sync_service.dart';
 
 class SQLiteDatabaseService {
   SQLiteDatabaseService._();
@@ -482,7 +483,9 @@ class SQLiteDatabaseService {
   void setCurrentUser(UserModel user) {
     final id = user.uid.trim().isEmpty ? 'default_user' : user.uid.trim();
     _uid = id;
-    _ready = _seedUser(user, id).catchError((Object _) {});
+    final seeded = _seedUser(user, id).catchError((Object _) {});
+    _ready = seeded;
+    seeded.then((_) => SyncService.instance.start(user));
   }
 
   Future<void> _seedUser(UserModel user, String id) async {

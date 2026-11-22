@@ -30,7 +30,7 @@ class _GroupDebtScreenState extends State<GroupDebtScreen> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool pull = true}) async {
     try {
       final groups = await _controller.fetchGroups();
       final debts = await _controller.fetchDebts();
@@ -42,6 +42,15 @@ class _GroupDebtScreenState extends State<GroupDebtScreen> {
         _wallets = wallets;
         _isLoading = false;
       });
+      if (pull && _controller.canShareGroups) {
+        final r = await _controller.syncGroups();
+        if (!mounted) return;
+        if (r.error != null) {
+          if (!r.error!.contains('kết nối')) showSnack(context, 'Chưa đồng bộ được nhóm: ${r.error}', isError: true);
+        } else if (r.changed) {
+          _loadData(pull: false);
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);

@@ -1,3 +1,4 @@
+import '../services/sync_service.dart';
 import '../core/constants/categories.dart';
 import '../core/utils/formatters.dart';
 import '../models/budget_models.dart';
@@ -10,17 +11,17 @@ class BudgetController {
   Future<BudgetOverview> fetchOverview(int period) => _sqlite.getBudgetOverview(period: period);
 
   Future<void> saveTotalLimit(int amount) =>
-      _sqlite.saveMonthBudget(month: DateTime.now(), totalLimit: amount);
+      markSynced(_sqlite.saveMonthBudget(month: DateTime.now(), totalLimit: amount));
 
-  Future<void> saveCategoryLimit(String categoryLabel, int amount) => _sqlite.saveBudgetItem(
+  Future<void> saveCategoryLimit(String categoryLabel, int amount) => markSynced(_sqlite.saveBudgetItem(
         month: DateTime.now(),
         categoryCode: Categories.codeOf(categoryLabel),
         limit: amount,
-      );
+      ));
 
-  Future<void> deleteCategoryLimit(String itemId) => _sqlite.deleteBudgetItem(itemId);
+  Future<void> deleteCategoryLimit(String itemId) => markSynced(_sqlite.deleteBudgetItem(itemId));
 
-  Future<bool> copyFromPreviousMonth() => _sqlite.copyPreviousMonthBudget(DateTime.now());
+  Future<bool> copyFromPreviousMonth() => markSynced(_sqlite.copyPreviousMonthBudget(DateTime.now()));
 
   /// Thông báo cảnh báo sau khi ghi một khoản chi (null nếu chưa chạm ngưỡng).
   Future<String?> alertAfterExpense(String categoryLabel, DateTime date) async {

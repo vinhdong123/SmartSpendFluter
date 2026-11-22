@@ -1,3 +1,4 @@
+import '../services/sync_service.dart';
 import '../models/goal_model.dart';
 import '../models/wallet_model.dart';
 import '../services/finance_queries.dart';
@@ -11,9 +12,9 @@ class WalletController {
   Future<bool> nameExists(String name) => _sqlite.walletNameExists(name);
 
   Future<void> addWallet(String name, String type, int initial) =>
-      _sqlite.addWallet(name: name, type: type, initialBalance: initial);
+      markSynced(_sqlite.addWallet(name: name, type: type, initialBalance: initial));
 
-  Future<void> setInitialBalance(String id, int amount) => _sqlite.setWalletInitialBalance(id, amount);
+  Future<void> setInitialBalance(String id, int amount) => markSynced(_sqlite.setWalletInitialBalance(id, amount));
 }
 
 class GoalController {
@@ -23,10 +24,10 @@ class GoalController {
   Future<List<WalletModel>> fetchWallets() => _sqlite.getWalletsWithBalance();
 
   Future<void> addGoal(String name, int target, DateTime? deadline) =>
-      _sqlite.addSavingsGoal(name: name, target: target, deadline: deadline);
+      markSynced(_sqlite.addSavingsGoal(name: name, target: target, deadline: deadline));
 
-  Future<void> contribute(String goalId, String walletName, int amount, bool isRelease) =>
-      _sqlite.addGoalContribution(goalId: goalId, walletName: walletName, amount: amount, isRelease: isRelease);
+  Future<void> contribute(String goalId, String walletName, int amount, bool isRelease) => markSynced(
+      _sqlite.addGoalContribution(goalId: goalId, walletName: walletName, amount: amount, isRelease: isRelease));
 
-  Future<void> archive(String goalId) => _sqlite.archiveGoal(goalId);
+  Future<void> archive(String goalId) => markSynced(_sqlite.archiveGoal(goalId));
 }

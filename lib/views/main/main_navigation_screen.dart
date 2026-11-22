@@ -8,6 +8,7 @@ import '../group_debt/group_debt_screen.dart';
 import '../report/report_screen.dart';
 import '../transaction/add_transaction_screen.dart';
 import '../../services/sqlite_database_service.dart';
+import '../../services/sync_service.dart';
 
 class MainNavigationScreen extends StatefulWidget {
   final UserModel user;
@@ -26,6 +27,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   void initState() {
     super.initState();
     SQLiteDatabaseService.instance.setCurrentUser(widget.user);
+    SyncService.instance.revision.addListener(_onSynced);
   }
 
   void _openAddTransactionModal() async {
@@ -42,6 +44,16 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   }
 
   void _refreshAll() => setState(() => _dataKey = UniqueKey());
+
+  void _onSynced() {
+    if (mounted) _refreshAll();
+  }
+
+  @override
+  void dispose() {
+    SyncService.instance.revision.removeListener(_onSynced);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {

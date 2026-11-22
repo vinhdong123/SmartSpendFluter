@@ -24,13 +24,22 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool pull = true}) async {
     final g = await _controller.fetchGroup(widget.groupId);
     if (!mounted) return;
     setState(() {
       _group = g;
       _isLoading = false;
     });
+    if (pull && _controller.canShareGroups) {
+      final r = await _controller.syncGroups();
+      if (!mounted) return;
+      if (r.error != null) {
+        if (!r.error!.contains('kết nối')) showSnack(context, 'Chưa đồng bộ được nhóm: ${r.error}', isError: true);
+      } else if (r.changed) {
+        _load(pull: false);
+      }
+    }
   }
 
   Future<void> _addExpense() async {
@@ -352,23 +361,61 @@ class _MemberForm extends StatefulWidget {
 
 class _MemberFormState extends State<_MemberForm> {
   final _name = TextEditingController();
+  final _email = TextEditingController();
+  int _mode = 0; // 0: người dùng SmartSpend (email), 1: chỉ nhập tên
   String? _error;
+  bool _saving = false;
 
   @override
   void dispose() {
     _name.dispose();
+    _email.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
+    if (_mode == 0) {
+      final email = _email.text.trim();
+      if (!email.contains('@') || !email.contains('.')) {
+        setState(() => _error = 'Email không hợp lệ');
+        return;
+      }
+      setState(() {
+        _error = null;
+        _saving = true;
+      });
+      try {
+        final name = await widget.controller.addMemberByEmail(widget.groupId, email);
+        if (!mounted) return;
+        showSnack(context, 'Đã thêm $name vào nhóm');
+        Navigator.of(context).pop(true);
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          _saving = false;
+          _error = '$e';
+        });
+      }
+      return;
+    }
+
     final name = _name.text.trim();
     if (name.isEmpty) {
       setState(() => _error = 'Vui lòng nhập tên');
       return;
     }
-    await widget.controller.addMember(widget.groupId, name);
-    if (!mounted) return;
-    Navigator.of(context).pop(true);
+    setState(() => _saving = true);
+    try {
+      await widget.controller.addMember(widget.groupId, name);
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = 'Lỗi: $e';
+      });
+    }
   }
 
   @override
@@ -377,13 +424,43 @@ class _MemberFormState extends State<_MemberForm> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SheetHeader('Thêm thành viên'),
-        TextField(
-          controller: _name,
-          autofocus: true,
-          textCapitalization: TextCapitalization.words,
-          decoration: InputDecoration(labelText: 'Tên thành viên', errorText: _error),
+        SegmentedTabs(
+          labels: const ['Người dùng SmartSpend', 'Chỉ nhập tên'],
+          selected: _mode,
+          onChanged: (i) => setState(() {
+            _mode = i;
+            _error = null;
+          }),
         ),
-        SheetSubmit(label: 'Thêm', onPressed: _save),
+        const SizedBox(height: 16),
+        if (_mode == 0) ...[
+          TextField(
+            controller: _email,
+            autofocus: true,
+            keyboardType: TextInputType.emailAddress,
+            decoration: InputDecoration(labelText: 'Email tài khoản SmartSpend', errorText: _error),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            widget.controller.canShareGroups
+                ? 'Người được thêm sẽ thấy nhóm này trên máy của họ và cùng ghi khoản chi.'
+                : 'Bạn cần đăng nhập bằng tài khoản Firebase (có mạng) để chia sẻ nhóm.',
+            style: const TextStyle(fontSize: 12, color: AppColors.textHint),
+          ),
+        ] else ...[
+          TextField(
+            controller: _name,
+            autofocus: true,
+            textCapitalization: TextCapitalization.words,
+            decoration: InputDecoration(labelText: 'Tên thành viên', errorText: _error),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Người này không có tài khoản nên chỉ bạn ghi nhận khoản chi cho họ.',
+            style: TextStyle(fontSize: 12, color: AppColors.textHint),
+          ),
+        ],
+        SheetSubmit(label: 'Thêm', onPressed: _save, isLoading: _saving),
       ],
     );
   }

@@ -5,6 +5,7 @@ import '../../controllers/auth_controller.dart';
 import '../../controllers/home_controller.dart';
 import '../../models/transaction_model.dart';
 import '../../models/user_model.dart';
+import '../../services/sync_service.dart';
 import '../auth/login_screen.dart';
 import '../goals/savings_goals_screen.dart';
 import '../wallet/wallets_screen.dart';
@@ -161,6 +162,23 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           ListTile(
             contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.cloud_sync_outlined, color: AppColors.primaryTeal),
+            title: const Text('Đồng bộ Firebase'),
+            subtitle: ValueListenableBuilder<String>(
+              valueListenable: SyncService.instance.status,
+              builder: (_, value, __) => Text(value, style: const TextStyle(fontSize: 12)),
+            ),
+            onTap: () async {
+              Navigator.of(ctx).pop();
+              showSnack(context, 'Đang đồng bộ...');
+              final error = await SyncService.instance.syncNow();
+              if (!mounted) return;
+              showSnack(context, error ?? 'Đồng bộ thành công', isError: error != null);
+              _loadData();
+            },
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
             leading: const Icon(Icons.logout_rounded, color: AppColors.error),
             title: const Text('Đăng xuất', style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w600)),
             onTap: () {
@@ -182,6 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
       destructive: true,
     );
     if (!ok || !mounted) return;
+    SyncService.instance.stop();
     await AuthController().logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

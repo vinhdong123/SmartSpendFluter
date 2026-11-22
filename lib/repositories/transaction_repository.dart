@@ -1,3 +1,4 @@
+import '../services/sync_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/transaction_model.dart';
 import '../services/sqlite_database_service.dart';
@@ -38,11 +39,11 @@ class TransactionRepository {
     return _sqlite.getAllTransactions(limit: limit);
   }
 
-  Future<void> addTransaction(TransactionModel transaction) => _sqlite.insertTransaction(transaction);
+  Future<void> addTransaction(TransactionModel transaction) => markSynced(_sqlite.insertTransaction(transaction));
 
-  Future<void> updateTransaction(TransactionModel transaction) => _sqlite.updateTransaction(transaction);
+  Future<void> updateTransaction(TransactionModel transaction) => markSynced(_sqlite.updateTransaction(transaction));
 
-  Future<void> deleteTransaction(String id) => _sqlite.deleteTransaction(id);
+  Future<void> deleteTransaction(String id) => markSynced(_sqlite.deleteTransaction(id));
 
   double calculateTotalIncome(List<TransactionModel> list) {
     return list.where((t) => !t.isExpense).fold(0.0, (sum, item) => sum + item.amount);
