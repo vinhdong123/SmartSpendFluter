@@ -4,7 +4,7 @@ import '../../core/utils/formatters.dart';
 import '../../controllers/wallet_goal_controller.dart';
 import '../../models/goal_model.dart';
 import '../../models/wallet_model.dart';
-import '../widgets/common_widgets.dart';
+import '../widgets/common_widgets.dart' hide pickDate;
 import '../widgets/ui_kit.dart';
 
 IconData goalIcon(String name) {
