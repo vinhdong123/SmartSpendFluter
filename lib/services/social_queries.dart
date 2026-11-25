@@ -29,11 +29,20 @@ extension SocialQueries on SQLiteDatabaseService {
     });
   }
 
-  Future<String> createGroup({required String name, required List<String> memberNames}) async {
+  Future<String> createGroup({
+    required String name,
+    required List<String> memberNames,
+    String? description,
+  }) async {
     final db = await readyDatabase;
     final groupId = 'group_${DateTime.now().microsecondsSinceEpoch}';
     await db.transaction((txn) async {
-      await txn.insert('expense_groups', {'id': groupId, 'owner_id': uid, 'name': name.trim()});
+      await txn.insert('expense_groups', {
+        'id': groupId,
+        'owner_id': uid,
+        'name': name.trim(),
+        'description': (description ?? '').trim().isEmpty ? null : description!.trim(),
+      });
       await txn.insert('group_members', {
         'id': 'gm_${groupId}_me',
         'group_id': groupId,
@@ -184,7 +193,8 @@ extension SocialQueries on SQLiteDatabaseService {
     return result;
   }
 
-  /// Chia đều [amount] cho các thành viên trong [participantIds].
+  /// Chia [amount] cho các thành viên. Mặc định chia đều cho [participantIds];
+  /// nếu có [shares] (memberId -> số tiền) thì dùng đúng số tiền đó (tổng phải bằng [amount]).
   Future<void> addGroupExpense({
     required String groupId,
     required String description,
@@ -192,7 +202,15 @@ extension SocialQueries on SQLiteDatabaseService {
     required String paidByMemberId,
     required List<String> participantIds,
     required DateTime date,
+    Map<String, int>? shares,
   }) async {
+    if (shares != null) {
+      final sum = shares.values.fold<int>(0, (a, b) => a + b);
+      if (shares.isEmpty || sum != amount) {
+        throw ArgumentError('Tổng số tiền chia (${formatVND(sum)}) phải bằng ${formatVND(amount)}.');
+      }
+      participantIds = shares.keys.toList();
+    }
     if (participantIds.isEmpty) {
       throw ArgumentError('Cần chọn ít nhất một người tham gia.');
     }
@@ -215,7 +233,7 @@ extension SocialQueries on SQLiteDatabaseService {
           'id': 'ges_${expenseId}_$i',
           'expense_id': expenseId,
           'member_id': participantIds[i],
-          'share_amount': base + (i < remainder ? 1 : 0),
+          'share_amount': shares != null ? shares[participantIds[i]]! : base + (i < remainder ? 1 : 0),
         });
       }
     });
@@ -334,6 +352,7 @@ extension SocialQueries on SQLiteDatabaseService {
     required DebtModel debt,
     required int amount,
     required String walletName,
+    DateTime? date,
   }) async {
     if (amount <= 0 || amount > debt.remaining) {
       throw ArgumentError('Số tiền phải nằm trong khoảng 1 – ${formatVND(debt.remaining)}.');
@@ -342,7 +361,7 @@ extension SocialQueries on SQLiteDatabaseService {
     final walletId = await resolveWalletId(walletName);
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final txId = 'tx_dp_$stamp';
-    final now = DateTime.now();
+    final now = date ?? DateTime.now();
 
     await db.transaction((txn) async {
       await txn.insert('transactions', {

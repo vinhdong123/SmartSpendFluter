@@ -30,7 +30,7 @@ class PrimaryButton extends StatelessWidget {
           disabledBackgroundColor: backgroundColor.withValues(alpha: 0.6),
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
         child: isLoading
@@ -73,11 +73,12 @@ class GoogleSignInButton extends StatelessWidget {
       child: ElevatedButton(
         onPressed: isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.lightMint,
-          foregroundColor: AppColors.primaryTeal,
+          backgroundColor: Colors.white,
+          foregroundColor: AppColors.textPrimary,
           elevation: 0,
+          side: const BorderSide(color: AppColors.border),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(12),
           ),
         ),
         child: Row(
@@ -103,7 +104,7 @@ class GoogleSignInButton extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             const Text(
-              'Tiếp tục với Google',
+              'Đăng nhập với Google',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -112,6 +113,77 @@ class GoogleSignInButton extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Nút nền nhạt (primary100) chữ primary, có thể kèm icon.
+class TonalButton extends StatelessWidget {
+  final String text;
+  final IconData? icon;
+  final VoidCallback? onPressed;
+  final Color background;
+  final Color foreground;
+
+  const TonalButton({
+    super.key,
+    required this.text,
+    required this.onPressed,
+    this.icon,
+    this.background = AppColors.primary100,
+    this.foreground = AppColors.primary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: ElevatedButton(
+        onPressed: onPressed,
+        style: ElevatedButton.styleFrom(
+          backgroundColor: background,
+          foregroundColor: foreground,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[Icon(icon, size: 20), const SizedBox(width: 8)],
+            Flexible(
+              child: Text(text,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: foreground)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Nút viền trắng.
+class OutlineAppButton extends StatelessWidget {
+  final String text;
+  final VoidCallback? onPressed;
+
+  const OutlineAppButton({super.key, required this.text, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.textPrimary,
+          side: const BorderSide(color: AppColors.border),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+        child: Text(text, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
       ),
     );
   }

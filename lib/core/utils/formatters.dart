@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'app_settings.dart';
 
 /// 1234567 -> "1.234.567"
 String formatNumber(num value) {
@@ -9,9 +10,17 @@ String formatNumber(num value) {
       );
 }
 
-/// 1234567 -> "1.234.567đ" (số âm có dấu '-')
+/// 1234567 -> "1.234.567đ" (số âm có dấu '-'). Khi bật USD: "$49.38".
 String formatVND(num value) {
   final sign = value < 0 ? '-' : '';
+  if (AppSettings.useUsd) {
+    final usd = value.abs() / AppSettings.usdRate;
+    final text = usd.toStringAsFixed(2).replaceAllMapped(
+          RegExp(r'(\d)(?=(\d{3})+\.)'),
+          (Match m) => '${m[1]},',
+        );
+    return '$sign\$$text';
+  }
   return '$sign${formatNumber(value)}đ';
 }
 
@@ -35,6 +44,9 @@ String dbDate(DateTime d) => '${d.year.toString().padLeft(4, '0')}-${two(d.month
 
 /// dd/MM
 String formatDayMonth(DateTime d) => '${two(d.day)}/${two(d.month)}';
+
+/// HH:mm
+String formatTime(DateTime d) => '${two(d.hour)}:${two(d.minute)}';
 
 /// dd/MM/yyyy
 String formatDate(DateTime d) => '${two(d.day)}/${two(d.month)}/${d.year}';

@@ -29,7 +29,7 @@ class WalletModel {
   static String typeLabel(String type) {
     switch (type) {
       case 'bank':
-        return 'Ngân hàng';
+        return 'Thẻ ngân hàng';
       case 'ewallet':
         return 'Ví điện tử';
       default:

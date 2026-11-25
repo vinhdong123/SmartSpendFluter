@@ -13,7 +13,7 @@ void main() {
     await tester.pumpWidget(const SmartSpendApp());
 
     expect(find.text('SmartSpend'), findsOneWidget);
-    expect(find.text('Ghi chép thu chi trong 10 giây'), findsOneWidget);
+    expect(find.textContaining('Quản lý chi tiêu thông minh'), findsOneWidget);
     expect(find.text('Bắt đầu'), findsOneWidget);
 
     await tester.tap(find.text('Bắt đầu'));

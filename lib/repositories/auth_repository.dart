@@ -1,6 +1,9 @@
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/user_model.dart';
+import '../services/extra_queries.dart';
 import '../services/firebase_auth_service.dart';
 import '../services/local_storage_service.dart';
+import '../services/sqlite_database_service.dart';
 
 class AuthException implements Exception {
   final String message;
@@ -112,6 +115,93 @@ class AuthRepository {
     await _localStorage.saveUserSession(user);
 
     return user;
+  }
+
+  static const Duration resetLinkLifetime = Duration(minutes: 30);
+
+  /// Yêu cầu đặt lại mật khẩu.
+  /// * Tài khoản Firebase: gửi email chứa liên kết đặt lại.
+  /// * Tài khoản tạo ngoại tuyến trên máy này: cho phép đặt lại ngay trong ứng dụng
+  ///   (liên kết có hiệu lực 30 phút).
+  Future<({bool emailed, bool canResetHere})> requestPasswordReset(String email) async {
+    final normalized = email.trim().toLowerCase();
+    var emailed = false;
+    try {
+      emailed = await _firebaseAuth.sendPasswordReset(normalized);
+    } catch (_) {
+      // Không có mạng / Firebase lỗi -> thử đặt lại cục bộ.
+    }
+
+    final localUid = await SQLiteDatabaseService.instance.getLocalUserUid(normalized);
+    final canResetHere = localUid != null && localUid.startsWith('local_');
+    if (!emailed && !canResetHere) {
+      throw const AuthException(
+        'Không tìm thấy tài khoản hoặc không thể gửi email lúc này. Kiểm tra email và kết nối mạng.',
+      );
+    }
+    if (canResetHere) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(
+        'reset_expiry_$normalized',
+        DateTime.now().add(resetLinkLifetime).millisecondsSinceEpoch,
+      );
+    }
+    return (emailed: emailed, canResetHere: canResetHere);
+  }
+
+  /// Thời gian còn lại của liên kết đặt lại cục bộ (null nếu hết hạn / chưa có).
+  Future<Duration?> resetLinkRemaining(String email) async {
+    final prefs = await SharedPreferences.getInstance();
+    final expiry = prefs.getInt('reset_expiry_${email.trim().toLowerCase()}');
+    if (expiry == null) return null;
+    final left = DateTime.fromMillisecondsSinceEpoch(expiry).difference(DateTime.now());
+    return left.isNegative ? null : left;
+  }
+
+  Future<void> resetPasswordLocal({required String email, required String newPassword}) async {
+    final remaining = await resetLinkRemaining(email);
+    if (remaining == null) {
+      throw const AuthException('Liên kết đặt lại đã hết hạn. Vui lòng yêu cầu lại.');
+    }
+    await SQLiteDatabaseService.instance.updateLocalPassword(email, newPassword);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('reset_expiry_${email.trim().toLowerCase()}');
+  }
+
+  /// Đổi mật khẩu khi đã đăng nhập.
+  Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final normalized = email.trim().toLowerCase();
+    if (normalized == 'demo@smartspend.vn') {
+      throw const AuthException('Không thể đổi mật khẩu của tài khoản demo.');
+    }
+    var firebaseDone = false;
+    try {
+      firebaseDone = await _firebaseAuth.changePassword(
+        currentPassword: currentPassword,
+        newPassword: newPassword,
+      );
+    } catch (e) {
+      final text = e.toString();
+      if (text.contains('wrong-password') || text.contains('invalid-credential')) {
+        throw const AuthException('Mật khẩu hiện tại không đúng.');
+      }
+      if (text.contains('weak-password')) throw const AuthException('Mật khẩu mới quá yếu.');
+      if (text.contains('requires-recent-login')) {
+        throw const AuthException('Phiên đăng nhập đã cũ. Hãy đăng xuất và đăng nhập lại rồi thử lại.');
+      }
+      // Lỗi mạng -> không đổi để hai nơi không bị lệch mật khẩu.
+      throw const AuthException('Không thể đổi mật khẩu lúc này. Kiểm tra kết nối mạng và thử lại.');
+    }
+
+    if (!firebaseDone) {
+      final ok = await _localStorage.loginLocal(normalized, currentPassword);
+      if (ok == null) throw const AuthException('Mật khẩu hiện tại không đúng.');
+    }
+    await SQLiteDatabaseService.instance.updateLocalPassword(normalized, newPassword);
   }
 
   /// Get current session

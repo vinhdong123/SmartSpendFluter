@@ -1,12 +1,13 @@
 import 'package:material_ui/material_ui.dart';
 import '../../core/constants/app_colors.dart';
-import '../../core/constants/categories.dart';
 import '../../core/utils/formatters.dart';
 import '../../controllers/transaction_controller.dart';
 import '../../models/transaction_model.dart';
-import '../../models/wallet_model.dart';
-import '../transaction/add_transaction_screen.dart';
+import '../../models/tx_filter.dart';
+import '../transaction/transaction_detail_screen.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/ui_kit.dart';
+import 'search_filter_screen.dart';
 
 class HistoryScreen extends StatefulWidget {
   final VoidCallback? onChanged;
@@ -19,335 +20,185 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   final TransactionController _controller = TransactionController();
-  final _searchController = TextEditingController();
-  final _searchFocus = FocusNode();
 
-  List<TransactionModel> _allTransactions = [];
-  List<WalletModel> _wallets = [];
-  bool _isLoading = true;
-
-  DateTime? _monthFilter = DateTime(DateTime.now().year, DateTime.now().month, 1);
-  String? _walletFilter;
-  String? _categoryFilter;
+  List<TransactionModel> _all = [];
+  bool _loading = true;
+  TxFilter _filter = TxFilter.thisMonth();
 
   @override
   void initState() {
     super.initState();
-    _loadData();
-    _searchController.addListener(() => setState(() {}));
+    _load();
   }
 
-  @override
-  void dispose() {
-    _searchController.dispose();
-    _searchFocus.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadData() async {
+  Future<void> _load() async {
     try {
       final list = await _controller.fetchTransactions();
-      final wallets = await _controller.fetchWallets();
       if (!mounted) return;
       setState(() {
-        _allTransactions = list;
-        _wallets = wallets;
-        _isLoading = false;
+        _all = list;
+        _loading = false;
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      setState(() => _loading = false);
       showSnack(context, 'Không tải được dữ liệu: $e', isError: true);
     }
   }
 
-  List<TransactionModel> get _filtered => _controller.filterTransactions(
-        transactions: _allTransactions,
-        searchQuery: _searchController.text,
-        categoryFilter: _categoryFilter,
-        walletFilter: _walletFilter,
-        month: _monthFilter,
-      );
-
-  Map<String, List<TransactionModel>> _groupByDate(List<TransactionModel> list) {
-    final grouped = <String, List<TransactionModel>>{};
-    for (final tx in list) {
-      grouped.putIfAbsent(friendlyDate(tx.date), () => []).add(tx);
-    }
-    return grouped;
+  Future<void> _openFilter() async {
+    final result = await Navigator.of(context).push<TxFilter>(
+      MaterialPageRoute(builder: (_) => SearchFilterScreen(initial: _filter)),
+    );
+    if (result != null) setState(() => _filter = result);
   }
 
   Future<void> _pickMonth() async {
     final now = DateTime.now();
-    final months = [for (int i = 0; i < 12; i++) DateTime(now.year, now.month - i, 1)];
-    final result = await showPickerSheet<DateTime?>(
+    final months = [for (var i = 0; i < 12; i++) DateTime(now.year, now.month - i, 1)];
+    final picked = await showPickerSheet<DateTime?>(
       context,
-      title: 'Chọn thời gian',
-      selected: _monthFilter,
+      title: 'Chọn tháng',
+      selected: _filter.isMonthRange ? _filter.from : null,
       options: [
         const PickerOption<DateTime?>('Tất cả thời gian', null),
         for (final m in months) PickerOption<DateTime?>('Tháng ${m.month}/${m.year}', m),
       ],
     );
-    if (result != null) setState(() => _monthFilter = result.value);
+    if (picked == null) return;
+    final m = picked.value;
+    setState(() {
+      _filter = m == null
+          ? _filter.copyWith(clearRange: true)
+          : _filter.copyWith(from: m, to: DateTime(m.year, m.month + 1, 0));
+    });
   }
 
-  Future<void> _pickWallet() async {
-    final result = await showPickerSheet<String?>(
-      context,
-      title: 'Chọn ví',
-      selected: _walletFilter,
-      options: [
-        const PickerOption<String?>('Tất cả ví', null),
-        for (final w in _wallets) PickerOption<String?>(w.name, w.name, icon: w.icon),
-      ],
+  Future<void> _openDetail(TransactionModel tx) async {
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => TransactionDetailScreen(transaction: tx)),
     );
-    if (result != null) setState(() => _walletFilter = result.value);
-  }
-
-  Future<void> _pickCategory() async {
-    final result = await showPickerSheet<String?>(
-      context,
-      title: 'Chọn danh mục',
-      selected: _categoryFilter,
-      options: [
-        const PickerOption<String?>('Tất cả danh mục', null),
-        for (final label in Categories.allLabels)
-          PickerOption<String?>(label, label, icon: Categories.iconOf(label)),
-      ],
-    );
-    if (result != null) setState(() => _categoryFilter = result.value);
-  }
-
-  Future<void> _showActions(TransactionModel tx) async {
-    final action = await showAppSheet<String>(
-      context,
-      builder: (ctx) => Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SheetHeader(tx.title),
-          Text(
-            '${tx.formattedAmount} · ${tx.category} · ${tx.wallet}',
-            style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-          ),
-          const SizedBox(height: 8),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.edit_outlined, color: AppColors.primaryTeal),
-            title: const Text('Chỉnh sửa'),
-            onTap: () => Navigator.of(ctx).pop('edit'),
-          ),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.delete_outline_rounded, color: AppColors.error),
-            title: const Text('Xóa giao dịch', style: TextStyle(color: AppColors.error)),
-            onTap: () => Navigator.of(ctx).pop('delete'),
-          ),
-        ],
-      ),
-    );
-    if (!mounted) return;
-
-    if (action == 'edit') {
-      final changed = await Navigator.of(context).push<bool>(
-        MaterialPageRoute(
-          builder: (_) => AddTransactionScreen(editing: tx),
-          fullscreenDialog: true,
-        ),
-      );
-      if (changed == true) {
-        await _loadData();
-        widget.onChanged?.call();
-      }
-    } else if (action == 'delete') {
-      final ok = await confirmDialog(
-        context,
-        title: 'Xóa giao dịch',
-        message: 'Xóa "${tx.title}" (${tx.formattedAmount})? Thao tác này không thể hoàn tác.',
-        confirmLabel: 'Xóa',
-        destructive: true,
-      );
-      if (!ok || !mounted) return;
-      try {
-        await _controller.deleteTransaction(tx.id);
-        await _loadData();
-        widget.onChanged?.call();
-        if (mounted) showSnack(context, 'Đã xóa giao dịch');
-      } catch (e) {
-        if (mounted) showSnack(context, 'Không thể xóa: $e', isError: true);
-      }
+    if (changed == true) {
+      await _load();
+      widget.onChanged?.call();
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final filtered = _filtered;
-    final groupedData = _groupByDate(filtered);
-    final income = filtered.where((t) => !t.isExpense).fold<double>(0, (s, t) => s + t.amount);
-    final expense = filtered.where((t) => t.isExpense).fold<double>(0, (s, t) => s + t.amount);
+    final list = _controller.filterTransactions(_all, _filter);
+    var income = 0.0, expense = 0.0;
+    for (final t in list) {
+      if (t.isExpense) {
+        expense += t.amount;
+      } else {
+        income += t.amount;
+      }
+    }
+
+    // Nhóm theo ngày (giữ thứ tự mới nhất trước).
+    final groups = <String, List<TransactionModel>>{};
+    for (final t in list) {
+      groups.putIfAbsent(TransactionController.dayHeader(t.date), () => []).add(t);
+    }
 
     return Scaffold(
-      backgroundColor: AppColors.surfaceLight,
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Lịch sử',
-                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                  const Expanded(
+                    child: Text('Lịch sử',
+                        style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.search_rounded, color: AppColors.textPrimary),
-                    onPressed: () => _searchFocus.requestFocus(),
+                  SquareIconButton(icon: Icons.search_rounded, onTap: _openFilter, dot: _filter.query.isNotEmpty),
+                  const SizedBox(width: 10),
+                  SquareIconButton(
+                    icon: Icons.filter_alt_outlined,
+                    onTap: _openFilter,
+                    dot: _filter.wallet != null || _filter.category != null,
                   ),
                 ],
               ),
             ),
-
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: TextField(
-                controller: _searchController,
-                focusNode: _searchFocus,
-                decoration: InputDecoration(
-                  hintText: 'Tìm theo ghi chú, danh mục...',
-                  hintStyle: const TextStyle(fontSize: 14, color: AppColors.textHint),
-                  prefixIcon: const Icon(Icons.search_rounded, color: AppColors.textSecondary, size: 20),
-                  suffixIcon: _searchController.text.isEmpty
-                      ? null
-                      : IconButton(
-                          icon: const Icon(Icons.close_rounded, size: 18),
-                          onPressed: _searchController.clear,
-                        ),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(16),
-                    borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.5),
-                  ),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    _chip('Tất cả', _filter.type == 0, () => setState(() => _filter = _filter.copyWith(type: 0))),
+                    _chip('Chi tiêu', _filter.type == 1, () => setState(() => _filter = _filter.copyWith(type: 1))),
+                    _chip('Thu nhập', _filter.type == 2, () => setState(() => _filter = _filter.copyWith(type: 2))),
+                    _chip(_filter.rangeLabel, _filter.hasRange, _pickMonth, trailing: Icons.expand_more_rounded),
+                  ],
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: [
-                  _buildFilterChip(
-                    _monthFilter == null ? 'Tất cả thời gian' : 'Tháng ${_monthFilter!.month}/${_monthFilter!.year}',
-                    isActive: _monthFilter != null,
-                    onTap: _pickMonth,
-                  ),
-                  const SizedBox(width: 8),
-                  _buildFilterChip(_walletFilter ?? 'Tất cả ví', isActive: _walletFilter != null, onTap: _pickWallet),
-                  const SizedBox(width: 8),
-                  _buildFilterChip(_categoryFilter ?? 'Danh mục', isActive: _categoryFilter != null, onTap: _pickCategory),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            if (!_isLoading && filtered.isNotEmpty)
+            if (_filter.hasExtra)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: Row(
                   children: [
-                    Text(
-                      'Thu ${formatVND(income)}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.success),
+                    const Icon(Icons.filter_alt_outlined, size: 16, color: AppColors.textSecondary),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        [
+                          if (_filter.query.trim().isNotEmpty) '"${_filter.query.trim()}"',
+                          if (_filter.wallet != null) _filter.wallet!,
+                          if (_filter.category != null) _filter.category!,
+                        ].join(' · '),
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                      ),
                     ),
-                    const SizedBox(width: 14),
-                    Text(
-                      'Chi ${formatVND(expense)}',
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFEF4444)),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '${filtered.length} giao dịch',
-                      style: const TextStyle(fontSize: 12, color: AppColors.textHint),
+                    GestureDetector(
+                      onTap: () => setState(() => _filter = TxFilter(from: _filter.from, to: _filter.to, type: _filter.type)),
+                      child: const Text('Xóa lọc',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.primary)),
                     ),
                   ],
                 ),
               ),
-            const SizedBox(height: 8),
-
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(child: StatCard(label: 'Thu', value: formatVND(income), valueColor: AppColors.income)),
+                  const SizedBox(width: 12),
+                  Expanded(child: StatCard(label: 'Chi', value: formatVND(expense), valueColor: AppColors.expense)),
+                ],
+              ),
+            ),
             Expanded(
-              child: RefreshIndicator(
-                onRefresh: _loadData,
-                color: AppColors.primaryTeal,
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator(color: AppColors.primaryTeal))
-                    : filtered.isEmpty
-                        ? ListView(
-                            physics: const AlwaysScrollableScrollPhysics(),
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator(color: AppColors.primary))
+                  : list.isEmpty
+                      ? EmptyState(
+                          icon: Icons.receipt_long_outlined,
+                          message: _all.isEmpty ? 'Chưa có giao dịch nào' : 'Không có giao dịch phù hợp bộ lọc',
+                        )
+                      : RefreshIndicator(
+                          color: AppColors.primary,
+                          onRefresh: _load,
+                          child: ListView(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 96),
                             children: [
-                              EmptyState(
-                                icon: Icons.search_off_rounded,
-                                message: _allTransactions.isEmpty
-                                    ? 'Chưa có giao dịch nào'
-                                    : 'Không tìm thấy giao dịch phù hợp',
-                              ),
+                              for (final entry in groups.entries) ...[
+                                SectionLabel(entry.key),
+                                ListCard(
+                                  children: [for (final t in entry.value) TxRow(tx: t, onTap: () => _openDetail(t))],
+                                ),
+                              ],
                             ],
-                          )
-                        : ListView.builder(
-                            physics: const AlwaysScrollableScrollPhysics(),
-                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 90),
-                            itemCount: groupedData.keys.length,
-                            itemBuilder: (context, index) {
-                              final dateHeader = groupedData.keys.elementAt(index);
-                              final txList = groupedData[dateHeader]!;
-
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
-                                    child: Text(
-                                      dateHeader,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.textSecondary,
-                                      ),
-                                    ),
-                                  ),
-                                  Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(20),
-                                      border: Border.all(color: AppColors.border),
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        for (int i = 0; i < txList.length; i++) ...[
-                                          _buildHistoryTile(txList[i]),
-                                          if (i < txList.length - 1)
-                                            const Divider(height: 1, indent: 64, color: AppColors.border),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                ],
-                              );
-                            },
                           ),
-              ),
+                        ),
             ),
           ],
         ),
@@ -355,65 +206,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
-  Widget _buildFilterChip(String label, {required bool isActive, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isActive ? AppColors.primaryTeal : AppColors.lightMint,
-          borderRadius: BorderRadius.circular(20),
+  Widget _chip(String label, bool selected, VoidCallback onTap, {IconData? trailing}) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+          decoration: BoxDecoration(
+            color: selected ? AppColors.primary : AppColors.primary100,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w600, color: selected ? Colors.white : AppColors.textPrimary)),
+              if (trailing != null) ...[
+                const SizedBox(width: 2),
+                Icon(trailing, size: 18, color: selected ? Colors.white : AppColors.textPrimary),
+              ],
+            ],
+          ),
         ),
-        child: Row(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: isActive ? Colors.white : AppColors.primaryTeal,
-              ),
-            ),
-            const SizedBox(width: 2),
-            Icon(
-              Icons.keyboard_arrow_down_rounded,
-              size: 18,
-              color: isActive ? Colors.white : AppColors.primaryTeal,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHistoryTile(TransactionModel tx) {
-    final amountColor = tx.isExpense ? const Color(0xFFEF4444) : const Color(0xFF10B981);
-
-    return ListTile(
-      onTap: () => _showActions(tx),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      leading: Container(
-        width: 44,
-        height: 44,
-        decoration: BoxDecoration(
-          color: AppColors.lightMint,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Icon(tx.categoryIcon, color: AppColors.primaryTeal, size: 22),
-      ),
-      title: Text(
-        tx.title,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-      ),
-      subtitle: Text(
-        '${tx.category} · ${tx.wallet}',
-        style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-      ),
-      trailing: Text(
-        tx.formattedAmount,
-        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: amountColor),
       ),
     );
   }

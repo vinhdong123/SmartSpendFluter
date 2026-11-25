@@ -23,8 +23,8 @@ class SegmentedTabs extends StatelessWidget {
       height: 44,
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0xFFE2F1ED),
-        borderRadius: BorderRadius.circular(12),
+        color: AppColors.primary100,
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         children: [
@@ -35,7 +35,7 @@ class SegmentedTabs extends StatelessWidget {
                 onTap: () => onChanged(i),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: selected == i ? AppColors.primaryTeal : Colors.transparent,
+                    color: selected == i ? AppColors.primary : Colors.transparent,
                     borderRadius: BorderRadius.circular(10),
                   ),
                   alignment: Alignment.center,
@@ -44,7 +44,7 @@ class SegmentedTabs extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: selected == i ? FontWeight.bold : FontWeight.w500,
-                      color: selected == i ? Colors.white : AppColors.textSecondary,
+                      color: selected == i ? Colors.white : AppColors.textPrimary,
                     ),
                   ),
                 ),
@@ -161,25 +161,76 @@ Future<bool> confirmDialog(
 }) async {
   final result = await showDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
-      content: Text(message),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(false),
-          child: const Text('Hủy', style: TextStyle(color: AppColors.textSecondary)),
-        ),
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(true),
-          child: Text(
-            confirmLabel,
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: destructive ? AppColors.error : AppColors.primaryTeal,
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.white,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: const BorderSide(color: AppColors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: destructive ? AppColors.expense50 : AppColors.primary100,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Icon(
+                destructive ? Icons.delete_outline_rounded : Icons.help_outline_rounded,
+                color: destructive ? AppColors.expense : AppColors.primary,
+              ),
             ),
-          ),
+            const SizedBox(height: 14),
+            Text(title,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+            const SizedBox(height: 8),
+            Text(message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 14, height: 1.4, color: AppColors.textSecondary)),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppColors.textPrimary,
+                        side: const BorderSide(color: AppColors.border),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Hủy', style: TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: SizedBox(
+                    height: 48,
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(ctx).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        elevation: 0,
+                        backgroundColor: destructive ? AppColors.expense50 : AppColors.primary,
+                        foregroundColor: destructive ? AppColors.expense : Colors.white,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: Text(confirmLabel, style: const TextStyle(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
-      ],
+      ),
     ),
   );
   return result ?? false;
@@ -434,13 +485,14 @@ class ChipSelector extends StatelessWidget {
             label: Text(o),
             selected: selected == o,
             onSelected: (_) => onSelected(o),
-            selectedColor: AppColors.primaryTeal,
-            backgroundColor: AppColors.lightMint,
+            selectedColor: AppColors.primary,
+            backgroundColor: AppColors.primary100,
             side: BorderSide.none,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
             labelStyle: TextStyle(
-              fontSize: 13,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: selected == o ? Colors.white : AppColors.primaryTeal,
+              color: selected == o ? Colors.white : AppColors.textPrimary,
             ),
             showCheckmark: false,
           ),

@@ -44,6 +44,14 @@ dependencies:
   cupertino_icons: ^1.0.8
   cloud_firestore: ^7.2.0
 
+  # Tính năng bổ sung: ảnh hóa đơn, xuất báo cáo, chia sẻ, kiểm tra mạng
+  path_provider: ^2.1.5
+  image_picker: ^1.1.2
+  share_plus: ^10.1.4
+  pdf: ^3.11.1
+  excel: ^4.0.6
+  connectivity_plus: ^6.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -65,6 +73,25 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  # DejaVu Sans: font có đủ dấu tiếng Việt, dùng để xuất PDF.
+  assets:
+    - assets/fonts/DejaVuSans.ttf
+    - assets/fonts/DejaVuSans-Bold.ttf
+
+  # Font giao diện theo mockup (Be Vietnam Pro, tải miễn phí trên Google Fonts):
+  # 1) Chép BeVietnamPro-Regular/Medium/SemiBold/Bold.ttf vào assets/fonts/
+  # 2) Bỏ comment khối dưới đây rồi chạy `flutter pub get`.
+  # fonts:
+  #   - family: BeVietnamPro
+  #     fonts:
+  #       - asset: assets/fonts/BeVietnamPro-Regular.ttf
+  #       - asset: assets/fonts/BeVietnamPro-Medium.ttf
+  #         weight: 500
+  #       - asset: assets/fonts/BeVietnamPro-SemiBold.ttf
+  #         weight: 600
+  #       - asset: assets/fonts/BeVietnamPro-Bold.ttf
+  #         weight: 700
 
   # To add assets to your application, add an assets section, like this:
   # assets:

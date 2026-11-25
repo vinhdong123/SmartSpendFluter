@@ -1,16 +1,19 @@
-import '../core/utils/formatters.dart';
+import '../models/goal_model.dart';
+import '../models/notification_item.dart';
 import '../models/transaction_model.dart';
 import '../repositories/transaction_repository.dart';
+import '../core/utils/formatters.dart';
 import '../services/finance_queries.dart';
-import '../services/social_queries.dart';
 import '../services/sqlite_database_service.dart';
+import 'notification_controller.dart';
 
 class HomeData {
   final int balance;
   final int monthIncome;
   final int monthExpense;
   final List<TransactionModel> recent;
-  final List<String> alerts;
+  final List<NotificationItem> alerts;
+  final SavingsGoalModel? goal;
 
   const HomeData({
     required this.balance,
@@ -18,6 +21,7 @@ class HomeData {
     required this.monthExpense,
     required this.recent,
     required this.alerts,
+    required this.goal,
   });
 }
 
@@ -34,29 +38,24 @@ class HomeController {
     final totals = await _sqlite.getPeriodTotals(range.from, range.to);
     final recent = await _sqlite.getAllTransactions(limit: 5);
 
-    final alerts = <String>[];
-    final budget = await _sqlite.getBudgetOverview(period: 1);
-    alerts.addAll(budget.alerts);
-
-    final debts = await _sqlite.getDebts();
-    for (final d in debts) {
-      if (d.isOverdue) {
-        alerts.add(d.isBorrowed
-            ? 'Khoản nợ ${d.counterparty} đã quá hạn (${formatDayMonth(d.dueOn!)})'
-            : '${d.counterparty} đã quá hạn trả bạn (${formatDayMonth(d.dueOn!)})');
-      } else if (d.isDueSoon) {
-        alerts.add(d.isBorrowed
-            ? 'Sắp đến hạn trả ${d.counterparty} (${formatDayMonth(d.dueOn!)})'
-            : '${d.counterparty} sắp đến hạn trả bạn (${formatDayMonth(d.dueOn!)})');
+    final notifications = await NotificationController().load();
+    final goals = await _sqlite.getSavingsGoals();
+    SavingsGoalModel? goal;
+    for (final g in goals) {
+      if (!g.isDone) {
+        goal = g;
+        break;
       }
     }
+    goal ??= goals.isEmpty ? null : goals.first;
 
     return HomeData(
       balance: balance,
       monthIncome: totals.income,
       monthExpense: totals.expense,
       recent: recent,
-      alerts: alerts,
+      alerts: notifications.where((n) => n.isAlert).toList(),
+      goal: goal,
     );
   }
 }

@@ -2,30 +2,44 @@ import 'package:material_ui/material_ui.dart';
 import '../constants/app_colors.dart';
 
 abstract final class AppTheme {
+  /// Font theo mockup: Be Vietnam Pro. Thêm file font vào assets/fonts và bỏ
+  /// comment mục `fonts:` trong pubspec.yaml để bật (xem README).
+  static const String fontFamily = 'BeVietnamPro';
+
+  static OutlineInputBorder _border(Color color, [double width = 1]) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: color, width: width),
+      );
+
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
+      fontFamily: fontFamily,
       brightness: Brightness.light,
-      primaryColor: AppColors.primaryTeal,
-      scaffoldBackgroundColor: AppColors.backgroundLight,
+      primaryColor: AppColors.primary,
+      scaffoldBackgroundColor: AppColors.bg,
+      dividerColor: AppColors.border,
       colorScheme: const ColorScheme.light(
-        primary: AppColors.primaryTeal,
+        primary: AppColors.primary,
         onPrimary: Colors.white,
-        primaryContainer: AppColors.lightMint,
-        onPrimaryContainer: AppColors.primaryTeal,
-        secondary: AppColors.darkTeal,
-        surface: AppColors.backgroundLight,
+        primaryContainer: AppColors.primary100,
+        onPrimaryContainer: AppColors.primary,
+        secondary: AppColors.accent,
+        surface: AppColors.surface,
         onSurface: AppColors.textPrimary,
-        error: AppColors.error,
+        error: AppColors.expense,
+        outline: AppColors.border,
       ),
       appBarTheme: const AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
-        centerTitle: true,
+        centerTitle: false,
         iconTheme: IconThemeData(color: AppColors.textPrimary),
         titleTextStyle: TextStyle(
+          fontFamily: fontFamily,
           color: AppColors.textPrimary,
-          fontSize: 18,
+          fontSize: 20,
           fontWeight: FontWeight.w600,
         ),
       ),
@@ -33,32 +47,16 @@ abstract final class AppTheme {
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        hintStyle: const TextStyle(
-          color: AppColors.textHint,
-          fontSize: 14,
-        ),
+        hintStyle: const TextStyle(color: AppColors.textHint, fontSize: 14),
+        labelStyle: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
         prefixIconColor: AppColors.textSecondary,
         suffixIconColor: AppColors.textSecondary,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.border, width: 1),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.border, width: 1),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryTeal, width: 1.5),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.error, width: 1),
-        ),
-        focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.error, width: 1.5),
-        ),
+        border: _border(AppColors.border),
+        enabledBorder: _border(AppColors.border),
+        disabledBorder: _border(AppColors.border),
+        focusedBorder: _border(AppColors.primary, 1.5),
+        errorBorder: _border(AppColors.expense),
+        focusedErrorBorder: _border(AppColors.expense, 1.5),
       ),
     );
   }

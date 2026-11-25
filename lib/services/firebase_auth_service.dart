@@ -64,6 +64,30 @@ class FirebaseAuthService {
     return null;
   }
 
+  /// Gửi email đặt lại mật khẩu. Trả về false nếu không có Firebase hoặc không có tài khoản.
+  Future<bool> sendPasswordReset(String email) async {
+    if (!isFirebaseAvailable) return false;
+    try {
+      await fb.FirebaseAuth.instance.sendPasswordResetEmail(email: email.trim());
+      return true;
+    } on fb.FirebaseAuthException catch (e) {
+      if (e.code == 'user-not-found' || e.code == 'invalid-email') return false;
+      rethrow;
+    }
+  }
+
+  /// Đổi mật khẩu cho người dùng Firebase đang đăng nhập (cần xác thực lại).
+  /// Trả về false nếu hiện không có phiên Firebase.
+  Future<bool> changePassword({required String currentPassword, required String newPassword}) async {
+    if (!isFirebaseAvailable) return false;
+    final user = fb.FirebaseAuth.instance.currentUser;
+    if (user == null || user.email == null) return false;
+    final credential = fb.EmailAuthProvider.credential(email: user.email!, password: currentPassword);
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPassword);
+    return true;
+  }
+
   /// Sign out from Firebase
   Future<void> signOut() async {
     if (isFirebaseAvailable) {

@@ -3,11 +3,13 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb;
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
 
+import '../core/utils/app_settings.dart';
 import '../core/utils/formatters.dart';
 import '../models/user_model.dart';
 import 'sqlite_database_service.dart';
@@ -145,11 +147,47 @@ class SyncService {
     return status.value.startsWith('Lỗi') ? status.value : null;
   }
 
+  /// Chỉ cho phép đồng bộ khi dùng Wi-Fi/Ethernet nếu người dùng bật "Chỉ đồng bộ khi dùng Wi-Fi".
+  Future<bool> _networkAllowed() async {
+    if (!AppSettings.wifiOnly) return true;
+    try {
+      final result = await Connectivity().checkConnectivity();
+      return result.contains(ConnectivityResult.wifi) || result.contains(ConnectivityResult.ethernet);
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Còn thay đổi chưa được đẩy lên đám mây?
+  Future<bool> hasPendingChanges() async {
+    if (!_active) return false;
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('sync_dirty_$_uid') ?? false;
+  }
+
+  /// Khôi phục dữ liệu từ đám mây (ghi đè dữ liệu cá nhân trên máy bằng bản đã sao lưu).
+  Future<String?> restoreFromCloud() async {
+    if (!_active) return 'Cần đăng nhập bằng tài khoản Firebase để khôi phục.';
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('sync_dirty_$_uid', false);
+    final changed = await _syncAll();
+    if (changed) revision.value++;
+    return status.value.startsWith('Lỗi') ? status.value : null;
+  }
+
   void markDirty() {
     if (!_active) return;
     SharedPreferences.getInstance().then((p) => p.setBool('sync_dirty_$_uid', true));
     _timer?.cancel();
+    if (!AppSettings.autoSync) {
+      status.value = 'Có thay đổi chưa sao lưu (đồng bộ tự động đang tắt)';
+      return;
+    }
     _timer = Timer(const Duration(milliseconds: 600), () async {
+      if (!await _networkAllowed()) {
+        status.value = 'Đang chờ Wi-Fi để đồng bộ';
+        return;
+      }
       try {
         await _push();
         final prefs = await SharedPreferences.getInstance();

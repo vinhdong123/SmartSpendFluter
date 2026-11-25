@@ -15,8 +15,8 @@ class GroupDebtController {
   Future<List<WalletModel>> fetchWallets() => _sqlite.getWalletsWithBalance();
   Future<List<DebtPaymentModel>> fetchPayments(String debtId) => _sqlite.getDebtPayments(debtId);
 
-  Future<void> createGroup(String name, List<String> members) =>
-      _sqlite.createGroup(name: name, memberNames: members);
+  Future<String> createGroup(String name, List<String> members, [String? description]) =>
+      _sqlite.createGroup(name: name, memberNames: members, description: description);
 
   Future<void> addMember(String groupId, String name) => _sqlite.addGroupMember(groupId, name);
 
@@ -27,8 +27,10 @@ class GroupDebtController {
     required String paidBy,
     required List<String> participants,
     required DateTime date,
+    Map<String, int>? shares,
   }) =>
       _sqlite.addGroupExpense(
+        shares: shares,
         groupId: groupId,
         description: description,
         amount: amount,
@@ -64,8 +66,8 @@ class GroupDebtController {
         walletName: walletName,
       ));
 
-  Future<void> payDebt(DebtModel debt, int amount, String walletName) =>
-      markSynced(_sqlite.recordDebtPayment(debt: debt, amount: amount, walletName: walletName));
+  Future<void> payDebt(DebtModel debt, int amount, String walletName, [DateTime? date]) =>
+      markSynced(_sqlite.recordDebtPayment(debt: debt, amount: amount, walletName: walletName, date: date));
 
   Future<void> archiveDebt(String id) => markSynced(_sqlite.archiveDebt(id));
 

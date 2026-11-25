@@ -5,6 +5,14 @@ import '../../controllers/wallet_goal_controller.dart';
 import '../../models/goal_model.dart';
 import '../../models/wallet_model.dart';
 import '../widgets/common_widgets.dart';
+import '../widgets/ui_kit.dart';
+
+IconData goalIcon(String name) {
+  final n = name.toLowerCase();
+  if (n.contains('du lịch') || n.contains('du lich')) return Icons.public_rounded;
+  if (n.contains('khẩn cấp') || n.contains('khan cap') || n.contains('dự phòng')) return Icons.favorite_border_rounded;
+  return Icons.track_changes_rounded;
+}
 
 class SavingsGoalsScreen extends StatefulWidget {
   const SavingsGoalsScreen({super.key});
@@ -16,8 +24,8 @@ class SavingsGoalsScreen extends StatefulWidget {
 class _SavingsGoalsScreenState extends State<SavingsGoalsScreen> {
   final GoalController _controller = GoalController();
   List<SavingsGoalModel> _goals = [];
-  List<WalletModel> _wallets = [];
-  bool _isLoading = true;
+  bool _loading = true;
+  bool _changed = false;
 
   @override
   void initState() {
@@ -27,160 +35,115 @@ class _SavingsGoalsScreenState extends State<SavingsGoalsScreen> {
 
   Future<void> _load() async {
     final goals = await _controller.fetchGoals();
-    final wallets = await _controller.fetchWallets();
     if (!mounted) return;
     setState(() {
       _goals = goals;
-      _wallets = wallets;
-      _isLoading = false;
+      _loading = false;
     });
   }
 
-  Future<void> _addGoal() async {
-    final created = await showAppSheet<bool>(
-      context,
-      builder: (ctx) => _GoalForm(controller: _controller),
-    );
-    if (created == true) _load();
+  Future<void> _push(Widget page) async {
+    final changed = await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => page));
+    if (changed == true) _changed = true;
+    _load();
   }
 
-  Future<void> _contribute(SavingsGoalModel goal) async {
-    final done = await showAppSheet<bool>(
-      context,
-      builder: (ctx) => _ContributeForm(controller: _controller, goal: goal, wallets: _wallets),
-    );
-    if (done == true) _load();
-  }
-
-  Future<void> _archive(SavingsGoalModel goal) async {
+  Future<void> _delete(SavingsGoalModel g) async {
     final ok = await confirmDialog(
       context,
-      title: 'Xóa mục tiêu',
-      message: 'Xóa mục tiêu "${goal.name}"? Các khoản đã dành sẽ không còn được tính.',
+      title: 'Xóa mục tiêu ${g.name}?',
+      message: 'Các lần nạp tiền đã ghi nhận vẫn được giữ trong lịch sử giao dịch.',
       confirmLabel: 'Xóa',
       destructive: true,
     );
     if (!ok) return;
-    await _controller.archive(goal.id);
+    await _controller.archive(g.id);
+    _changed = true;
     _load();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.surfaceLight,
-      appBar: AppBar(
-        title: const Text('Mục tiêu tiết kiệm'),
-        actions: [
-          IconButton(icon: const Icon(Icons.add_rounded), onPressed: _addGoal),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppColors.primaryTeal))
-          : RefreshIndicator(
-              onRefresh: _load,
-              color: AppColors.primaryTeal,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-                children: [
-                  if (_goals.isEmpty)
-                    EmptyState(
-                      icon: Icons.track_changes_outlined,
-                      message: 'Chưa có mục tiêu nào.\nĐặt mục tiêu để theo dõi tiến độ tiết kiệm.',
-                      actionLabel: 'Tạo mục tiêu',
-                      onAction: _addGoal,
-                    )
-                  else
-                    for (final g in _goals) _buildGoalCard(g),
-                ],
-              ),
-            ),
-    );
-  }
-
-  Widget _buildGoalCard(SavingsGoalModel g) {
-    final color = g.isDone ? AppColors.success : AppColors.primaryTeal;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: AppCard(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    g.name,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) Navigator.of(context).pop(_changed);
+      },
+      child: SubPage(
+        title: 'Mục tiêu tiết kiệm',
+        actions: [SquareIconButton(icon: Icons.add_rounded, onTap: () => _push(const CreateGoalScreen()))],
+        bottom: BottomPrimary(text: 'Tạo mục tiêu', onPressed: () => _push(const CreateGoalScreen())),
+        child: _loading
+            ? const Padding(
+                padding: EdgeInsets.only(top: 60),
+                child: Center(child: CircularProgressIndicator(color: AppColors.primary)),
+              )
+            : _goals.isEmpty
+                ? const OutlineCard(
+                    child: EmptyState(icon: Icons.track_changes_rounded, message: 'Chưa có mục tiêu nào. Hãy tạo mục tiêu đầu tiên!'),
+                  )
+                : Column(
+                    children: [
+                      for (final g in _goals) ...[
+                        OutlineCard(
+                          color: AppColors.savings50,
+                          onTap: () => _push(DepositGoalScreen(goal: g)),
+                          child: GestureDetector(
+                            onLongPress: () => _delete(g),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(goalIcon(g.name), color: AppColors.savings600, size: 22),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(g.name,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                                    ),
+                                    Text('${g.percent}%',
+                                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.savings600)),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                AppProgressBar(value: g.ratio, color: AppColors.savings600, background: AppColors.primary100),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text('${formatVND(g.saved)} / ${formatVND(g.target)}',
+                                          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                                    ),
+                                    if (g.deadline != null)
+                                      Text('Hạn ${formatDate(g.deadline!)}',
+                                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      const Text('Chạm vào mục tiêu để nạp tiền · Giữ để xóa',
+                          style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    ],
                   ),
-                ),
-                Text(
-                  '${g.percent}%',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: color),
-                ),
-                PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary, size: 20),
-                  onSelected: (v) {
-                    if (v == 'delete') _archive(g);
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'delete', child: Text('Xóa mục tiêu')),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: g.ratio,
-                minHeight: 8,
-                backgroundColor: AppColors.lightMint,
-                valueColor: AlwaysStoppedAnimation<Color>(color),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              '${formatVND(g.saved)} / ${formatVND(g.target)}',
-              style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            ),
-            if (g.deadline != null) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Hạn: ${formatDate(g.deadline!)}',
-                style: const TextStyle(fontSize: 12, color: AppColors.textHint),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => _contribute(g),
-                icon: const Icon(Icons.savings_outlined, size: 18, color: AppColors.primaryTeal),
-                label: const Text(
-                  'Nạp / rút tiền',
-                  style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryTeal),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
 }
 
-class _GoalForm extends StatefulWidget {
-  final GoalController controller;
-  const _GoalForm({required this.controller});
+class CreateGoalScreen extends StatefulWidget {
+  const CreateGoalScreen({super.key});
 
   @override
-  State<_GoalForm> createState() => _GoalFormState();
+  State<CreateGoalScreen> createState() => _CreateGoalScreenState();
 }
 
-class _GoalFormState extends State<_GoalForm> {
+class _CreateGoalScreenState extends State<CreateGoalScreen> {
+  final GoalController _controller = GoalController();
   final _name = TextEditingController();
   final _target = TextEditingController();
   DateTime? _deadline;
@@ -195,87 +158,107 @@ class _GoalFormState extends State<_GoalForm> {
     super.dispose();
   }
 
-  Future<void> _pickDeadline() async {
+  String? get _hint {
+    final target = parseAmount(_target.text);
+    final d = _deadline;
+    if (target <= 0 || d == null) return null;
     final now = DateTime.now();
-    final picked = await pickDate(
-      context,
-      initial: _deadline ?? DateTime(now.year, now.month + 1, now.day),
-      first: now,
-      last: DateTime(now.year + 20),
-    );
-    if (picked != null) setState(() => _deadline = picked);
+    final months = (d.year - now.year) * 12 + d.month - now.month;
+    if (months <= 0) return 'Hạn hoàn thành nên sau tháng này';
+    return 'Cần tiết kiệm khoảng ${formatVND((target / months).ceil())} mỗi tháng';
   }
 
   Future<void> _save() async {
     final name = _name.text.trim();
     final target = parseAmount(_target.text);
     setState(() {
-      _nameError = name.isEmpty ? 'Vui lòng nhập tên mục tiêu' : null;
-      _targetError = target <= 0 ? 'Vui lòng nhập số tiền mục tiêu' : null;
+      _nameError = name.isEmpty ? 'Nhập tên mục tiêu' : null;
+      _targetError = target <= 0 ? 'Nhập số tiền lớn hơn 0' : null;
     });
-    if (_nameError != null || _targetError != null) return;
-
+    if (name.isEmpty || target <= 0) return;
+    if (_deadline != null && _deadline!.isBefore(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day))) {
+      showSnack(context, 'Hạn hoàn thành không được ở quá khứ', isError: true);
+      return;
+    }
     setState(() => _saving = true);
-    try {
-      await widget.controller.addGoal(name, target, _deadline);
-      if (!mounted) return;
+    final ok = await runGuarded(context, () => _controller.addGoal(name, target, _deadline));
+    if (!mounted) return;
+    if (ok) {
       Navigator.of(context).pop(true);
-    } catch (e) {
-      if (!mounted) return;
+    } else {
       setState(() => _saving = false);
-      showSnack(context, 'Lỗi: $e', isError: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const SheetHeader('Mục tiêu mới'),
-        TextField(
-          controller: _name,
-          textCapitalization: TextCapitalization.sentences,
-          decoration: InputDecoration(labelText: 'Tên mục tiêu (VD: Mua laptop)', errorText: _nameError),
-        ),
-        const SizedBox(height: 12),
-        AmountField(controller: _target, label: 'Số tiền mục tiêu', errorText: _targetError),
-        const SizedBox(height: 8),
-        ListTile(
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.event_outlined, color: AppColors.textSecondary),
-          title: Text(_deadline == null ? 'Thêm hạn hoàn thành (tuỳ chọn)' : 'Hạn: ${formatDate(_deadline!)}'),
-          trailing: _deadline == null
-              ? null
-              : IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 20),
-                  onPressed: () => setState(() => _deadline = null),
-                ),
-          onTap: _pickDeadline,
-        ),
-        SheetSubmit(label: 'Tạo mục tiêu', onPressed: _save, isLoading: _saving),
-      ],
+    final hint = _hint;
+    return SubPage(
+      title: 'Tạo mục tiêu',
+      bottom: BottomPrimary(text: 'Lưu mục tiêu', onPressed: _save, loading: _saving),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LabeledInput(label: 'Tên mục tiêu', controller: _name, icon: Icons.track_changes_rounded, hint: 'Ví dụ: Mua xe máy', errorText: _nameError),
+          LabeledInput(
+            label: 'Số tiền cần đạt',
+            controller: _target,
+            icon: Icons.attach_money_rounded,
+            amount: true,
+            hint: '0',
+            errorText: _targetError,
+            onChanged: (_) => setState(() {}),
+          ),
+          LabeledSelect(
+            label: 'Hạn hoàn thành',
+            icon: Icons.calendar_today_outlined,
+            value: _deadline == null ? 'Không đặt hạn' : formatDate(_deadline!),
+            showChevron: false,
+            onTap: () async {
+              final d = await pickDate(context, _deadline ?? DateTime.now().add(const Duration(days: 180)), first: DateTime.now());
+              if (d != null) setState(() => _deadline = d);
+            },
+          ),
+          if (hint != null) ...[
+            const SizedBox(height: 16),
+            InfoBanner(icon: Icons.track_changes_rounded, tone: BannerTone.savings, title: 'Gợi ý', subtitle: hint),
+          ],
+        ],
+      ),
     );
   }
 }
 
-class _ContributeForm extends StatefulWidget {
-  final GoalController controller;
+class DepositGoalScreen extends StatefulWidget {
   final SavingsGoalModel goal;
-  final List<WalletModel> wallets;
-
-  const _ContributeForm({required this.controller, required this.goal, required this.wallets});
+  const DepositGoalScreen({super.key, required this.goal});
 
   @override
-  State<_ContributeForm> createState() => _ContributeFormState();
+  State<DepositGoalScreen> createState() => _DepositGoalScreenState();
 }
 
-class _ContributeFormState extends State<_ContributeForm> {
+class _DepositGoalScreenState extends State<DepositGoalScreen> {
+  final GoalController _controller = GoalController();
   final _amount = TextEditingController();
-  bool _isRelease = false;
-  late String _wallet = widget.wallets.isEmpty ? '' : widget.wallets.first.name;
+  List<WalletModel> _wallets = [];
+  String? _wallet;
+  DateTime _date = DateTime.now();
+  bool _release = false;
   String? _error;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.fetchWallets().then((w) {
+      if (mounted) {
+        setState(() {
+          _wallets = w;
+          _wallet = w.isEmpty ? null : w.first.name;
+        });
+      }
+    });
+  }
 
   @override
   void dispose() {
@@ -285,56 +268,93 @@ class _ContributeFormState extends State<_ContributeForm> {
 
   Future<void> _save() async {
     final amount = parseAmount(_amount.text);
+    final g = widget.goal;
     if (amount <= 0) {
-      setState(() => _error = 'Vui lòng nhập số tiền lớn hơn 0');
+      setState(() => _error = 'Nhập số tiền lớn hơn 0');
       return;
     }
-    if (_isRelease && amount > widget.goal.saved) {
-      setState(() => _error = 'Chỉ có thể rút tối đa ${formatVND(widget.goal.saved)}');
+    if (_release && amount > g.saved) {
+      setState(() => _error = 'Chỉ có thể rút tối đa ${formatVND(g.saved)}');
       return;
     }
-    if (_wallet.isEmpty) {
-      setState(() => _error = 'Chưa có ví nào');
+    if (_wallet == null) {
+      showSnack(context, 'Chưa có ví nào', isError: true);
       return;
     }
-    setState(() {
-      _error = null;
-      _saving = true;
-    });
-    try {
-      await widget.controller.contribute(widget.goal.id, _wallet, amount, _isRelease);
-      if (!mounted) return;
+    setState(() => _saving = true);
+    final ok = await runGuarded(context, () => _controller.contribute(g.id, _wallet!, amount, _release, _date));
+    if (!mounted) return;
+    if (ok) {
+      showSnack(context, _release ? 'Đã rút ${formatVND(amount)} về ví' : 'Đã nạp ${formatVND(amount)} vào mục tiêu');
       Navigator.of(context).pop(true);
-    } catch (e) {
-      if (!mounted) return;
+    } else {
       setState(() => _saving = false);
-      showSnack(context, 'Lỗi: $e', isError: true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SheetHeader(widget.goal.name),
-        SegmentedTabs(
-          labels: const ['Nạp thêm', 'Rút ra'],
-          selected: _isRelease ? 1 : 0,
-          onChanged: (i) => setState(() => _isRelease = i == 1),
-        ),
-        const SizedBox(height: 16),
-        AmountField(controller: _amount, errorText: _error, autofocus: true),
-        const SizedBox(height: 16),
-        const Text('Từ ví', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-        const SizedBox(height: 8),
-        ChipSelector(
-          options: [for (final w in widget.wallets) w.name],
-          selected: _wallet,
-          onSelected: (v) => setState(() => _wallet = v),
-        ),
-        SheetSubmit(label: _isRelease ? 'Rút khỏi mục tiêu' : 'Nạp vào mục tiêu', onPressed: _save, isLoading: _saving),
-      ],
+    final g = widget.goal;
+    return SubPage(
+      title: _release ? 'Rút tiền từ mục tiêu' : 'Nạp tiền vào mục tiêu',
+      bottom: BottomPrimary(text: _release ? 'Rút tiền' : 'Nạp tiền', onPressed: _save, loading: _saving),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InfoBanner(
+            icon: goalIcon(g.name),
+            tone: BannerTone.savings,
+            title: g.name,
+            subtitle: 'Đã có ${formatVND(g.saved)} / ${formatVND(g.target)}',
+          ),
+          const SizedBox(height: 14),
+          SegmentedTabs(
+            labels: const ['Nạp thêm', 'Rút ra'],
+            selected: _release ? 1 : 0,
+            onChanged: (i) => setState(() {
+              _release = i == 1;
+              _error = null;
+            }),
+          ),
+          LabeledInput(
+            label: _release ? 'Số tiền rút' : 'Số tiền nạp',
+            controller: _amount,
+            icon: Icons.attach_money_rounded,
+            amount: true,
+            hint: '0',
+            errorText: _error,
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+          ),
+          LabeledSelect(
+            label: _release ? 'Chuyển về ví' : 'Lấy từ ví',
+            icon: Icons.account_balance_wallet_outlined,
+            value: _wallet ?? '—',
+            onTap: _wallets.length < 2
+                ? null
+                : () async {
+                    final p = await showPickerSheet<String>(
+                      context,
+                      title: 'Chọn ví',
+                      selected: _wallet,
+                      options: [for (final w in _wallets) PickerOption(w.name, w.name, icon: w.icon)],
+                    );
+                    if (p != null) setState(() => _wallet = p.value);
+                  },
+          ),
+          LabeledSelect(
+            label: 'Ngày',
+            icon: Icons.calendar_today_outlined,
+            value: formatDate(_date),
+            showChevron: false,
+            onTap: () async {
+              final d = await pickDate(context, _date, last: DateTime.now());
+              if (d != null) setState(() => _date = d);
+            },
+          ),
+        ],
+      ),
     );
   }
 }

@@ -77,6 +77,21 @@ class AuthController {
     );
   }
 
+  Future<({bool emailed, bool canResetHere})> requestPasswordReset(String email) =>
+      _repository.requestPasswordReset(email);
+
+  Future<Duration?> resetLinkRemaining(String email) => _repository.resetLinkRemaining(email);
+
+  Future<void> resetPasswordLocal(String email, String newPassword) =>
+      _repository.resetPasswordLocal(email: email, newPassword: newPassword);
+
+  Future<void> changePassword({
+    required String email,
+    required String currentPassword,
+    required String newPassword,
+  }) =>
+      _repository.changePassword(email: email, currentPassword: currentPassword, newPassword: newPassword);
+
   /// Logout
   Future<void> logout() async {
     await _repository.logout();

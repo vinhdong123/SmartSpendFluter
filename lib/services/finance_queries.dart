@@ -168,6 +168,7 @@ extension FinanceQueries on SQLiteDatabaseService {
     required DateTime month,
     required String categoryCode,
     required int limit,
+    int alertPct = 80,
   }) async {
     final db = await readyDatabase;
     final key = dbDate(DateTime(month.year, month.month, 1));
@@ -196,10 +197,21 @@ extension FinanceQueries on SQLiteDatabaseService {
         'budget_id': budgetId,
         'category_code': categoryCode,
         'limit_amount': limit,
-        'alert_threshold_pct': 80,
+        'alert_threshold_pct': alertPct,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
+
+    // Hạn mức tổng không được nhỏ hơn tổng hạn mức các danh mục.
+    final sumRows = await db.rawQuery(
+      'SELECT COALESCE(SUM(limit_amount), 0) AS total FROM budget_items WHERE budget_id = ?',
+      [budgetId],
+    );
+    final sum = (sumRows.first['total'] as num).toInt();
+    final currentTotal = (rows.first['total_limit'] as num).toInt();
+    if (sum > currentTotal) {
+      await db.update('budgets', {'total_limit': sum}, where: 'id = ?', whereArgs: [budgetId]);
+    }
   }
 
   Future<void> deleteBudgetItem(String itemId) async {
@@ -230,6 +242,7 @@ extension FinanceQueries on SQLiteDatabaseService {
         month: month,
         categoryCode: r['category_code'] as String,
         limit: (r['limit_amount'] as num).toInt(),
+        alertPct: (r['alert_threshold_pct'] as num).toInt(),
       );
     }
     return true;
@@ -275,6 +288,7 @@ extension FinanceQueries on SQLiteDatabaseService {
     required String walletName,
     required int amount,
     required bool isRelease,
+    DateTime? date,
   }) async {
     final db = await readyDatabase;
     final walletId = await resolveWalletId(walletName);
@@ -284,7 +298,7 @@ extension FinanceQueries on SQLiteDatabaseService {
       'wallet_id': walletId,
       'direction': isRelease ? 'release' : 'allocate',
       'amount': amount,
-      'occurred_on': dbDate(DateTime.now()),
+      'occurred_on': dbDate(date ?? DateTime.now()),
     });
   }
 

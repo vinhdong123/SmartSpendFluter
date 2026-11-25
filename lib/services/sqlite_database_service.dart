@@ -24,23 +24,66 @@ class SQLiteDatabaseService {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onConfigure: (db) async {
         await db.execute('PRAGMA foreign_keys = ON;');
       },
       onCreate: _onCreate,
       onUpgrade: (db, oldVersion, newVersion) async {
-        // Clear & recreate schema on version upgrade
-        final tables = await db.rawQuery(
-          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';",
-        );
-        for (final table in tables) {
-          final tableName = table['name'] as String;
-          await db.execute('DROP TABLE IF EXISTS "$tableName";');
+        if (oldVersion < 2) {
+          // Cấu trúc cũ (v1) không tương thích -> tạo lại.
+          final tables = await db.rawQuery(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';",
+          );
+          for (final table in tables) {
+            final tableName = table['name'] as String;
+            await db.execute('DROP TABLE IF EXISTS "$tableName";');
+          }
+          await _onCreate(db, newVersion);
+          return;
         }
-        await _onCreate(db, newVersion);
+        // v2 -> v3: chỉ bổ sung bảng mới, giữ nguyên dữ liệu người dùng.
+        await _createExtraTables(db);
       },
     );
+  }
+
+  /// Bảng bổ sung (v3): giao dịch định kỳ, nhắc hóa đơn, mô tả nhóm.
+  Future<void> _createExtraTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS recurring_transactions (
+        id TEXT NOT NULL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
+        type TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+        kind TEXT NOT NULL,
+        category_code TEXT,
+        amount INTEGER NOT NULL CHECK (amount > 0),
+        frequency TEXT NOT NULL CHECK (frequency IN ('daily', 'weekly', 'monthly', 'yearly')),
+        start_on TEXT NOT NULL,
+        next_on TEXT NOT NULL,
+        note TEXT,
+        is_active INTEGER NOT NULL DEFAULT 1
+      );
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS bill_reminders (
+        id TEXT NOT NULL PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        amount INTEGER NOT NULL DEFAULT 0,
+        due_on TEXT NOT NULL,
+        repeat_monthly INTEGER NOT NULL DEFAULT 1,
+        is_paid INTEGER NOT NULL DEFAULT 0
+      );
+    ''');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_recurring_user ON recurring_transactions(user_id, is_active);');
+    await db.execute('CREATE INDEX IF NOT EXISTS idx_bills_user ON bill_reminders(user_id, is_paid, due_on);');
+    try {
+      await db.execute('ALTER TABLE expense_groups ADD COLUMN description TEXT;');
+    } catch (_) {
+      // Cột đã tồn tại.
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -462,6 +505,8 @@ class SQLiteDatabaseService {
       INSERT OR IGNORE INTO wallets (id, user_id, name, type, initial_balance)
       VALUES ('default_wallet', 'default_user', 'Ví Tiền mặt', 'cash', 0);
     ''');
+
+    await _createExtraTables(db);
   }
 
   // ================= CURRENT USER ================= //
