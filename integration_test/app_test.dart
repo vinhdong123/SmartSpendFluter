@@ -79,6 +79,17 @@ String messages(WidgetTester tester) => tester
     .map((bar) => (bar.content as Text).data)
     .join('\n');
 
+Future<void> expectAfterReload(WidgetTester tester, String text) async {
+  final expected = find.text(text);
+  final timeout = Stopwatch()..start();
+  while (expected.evaluate().isEmpty &&
+      timeout.elapsed < const Duration(seconds: 10)) {
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  await tester.pumpAndSettle();
+  expect(expected, findsOneWidget, reason: messages(tester));
+}
+
 Future<void> enter(WidgetTester tester, int index, String value) async {
   final field = fields.at(index);
   await tester.ensureVisible(field);
@@ -334,22 +345,23 @@ void main() {
     await wallets.setInitialBalance(wallet.id, 100);
     await showScreen(tester, MainNavigationScreen(user: user));
     await addExpense(tester, 1, note: 'Ăn sáng');
-    expect(find.text('99đ'), findsOneWidget);
+    await expectAfterReload(tester, '99đ');
     await openHistory(tester);
     await press(tester, 'Ăn sáng');
     await press(tester, 'Sửa');
     await enter(tester, 0, '2');
     await press(tester, 'Lưu thay đổi');
-    expect(find.text('-2đ'), findsOneWidget);
+    await expectAfterReload(tester, '-2đ');
     await press(tester, 'Trang chủ');
-    expect(find.text('98đ'), findsOneWidget);
+    await expectAfterReload(tester, '98đ');
     await openHistory(tester);
     await press(tester, 'Ăn sáng');
     await press(tester, 'Xóa');
     await confirm(tester, 'Xóa');
-    expect(find.text('Chưa có giao dịch nào'), findsOneWidget);
+    await expectAfterReload(tester, 'Chưa có giao dịch nào');
+    expect(await transactions.fetchTransactions(), isEmpty);
     await press(tester, 'Trang chủ');
-    expect(find.text('100đ'), findsOneWidget);
+    await expectAfterReload(tester, '100đ');
   });
 
   testWidgets(
